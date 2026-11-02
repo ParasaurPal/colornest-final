@@ -42,18 +42,19 @@ export default function Onboarding({ onComplete }) {
       )
     },
     {
-      title: "Where to find Line Art",
+      title: "Free Resources",
       icon: <ExternalLink size={64} className="text-blue-500 mb-6 mx-auto" />,
       content: (
         <div className="space-y-3 text-gray-600 dark:text-gray-300 text-sm">
-          <p className="font-bold text-gray-800 dark:text-white text-lg mb-2">Free Resources</p>
-          <p>Looking for new pages to color? Here are some great free sources for line art and coloring pages:</p>
+          <p className="text-gray-800 dark:text-white">
+            Need new pages to color? Here are direct links to external websites offering free line art and coloring pages:
+          </p>
           <ul className="space-y-2">
-            <li><a href="https://www.supercoloring.com" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">SuperColoring</a> - Massive library of thousands of pages.</li>
-            <li><a href="https://www.crayola.com/free-coloring-pages" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">Crayola</a> - Classic, reliable pages for all ages.</li>
-            <li><a href="https://coloringpagespro.com" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">Coloring Pages Pro</a> - High-quality, balanced compositions.</li>
-            <li><a href="https://www.justcolor.net" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">Just Color</a> - Artistic, adult-friendly, and Zentangle designs.</li>
-            <li><a href="https://openclipart.org" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">OpenClipart</a> - Public domain safe line art and vectors.</li>
+            <li>• <a href="https://www.supercoloring.com" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">SuperColoring</a>: Massive library of thousands of pages.</li>
+            <li>• <a href="https://www.crayola.com/free-coloring-pages" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">Crayola</a>: Classic, reliable pages for all ages.</li>
+            <li>• <a href="https://coloringpagespro.com" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">Coloring Pages Pro</a>: High-quality, balanced compositions.</li>
+            <li>• <a href="https://www.justcolor.net" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">Just Color</a>: Artistic, adult-friendly, and Zentangle designs.</li>
+            <li>• <a href="https://openclipart.org" target="_blank" rel="noreferrer" className="text-purple-600 font-bold underline">OpenClipart</a>: Public domain safe line art and vectors.</li>
           </ul>
 
           <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-lg">
@@ -84,20 +85,16 @@ export default function Onboarding({ onComplete }) {
     <div className="fixed inset-0 bg-black/80 flex justify-center items-center z-[999] p-4">
       <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md p-6 shadow-2xl flex flex-col min-h-[400px]">
         
-        {/* Header */}
         <div className="text-center mb-4">
           {slides[step].icon}
           <h2 className="text-2xl font-bold text-gray-800 dark:text-white">{slides[step].title}</h2>
         </div>
 
-        {/* Content Area */}
         <div className="flex-grow overflow-y-auto mb-6">
           {slides[step].content}
         </div>
 
-        {/* Footer / Navigation */}
         <div className="flex justify-between items-center mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
-          {/* Progress Dots */}
           <div className="flex gap-1">
             {slides.map((_, i) => (
               <div key={i} className={`w-2 h-2 rounded-full ${i === step ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'}`} />
