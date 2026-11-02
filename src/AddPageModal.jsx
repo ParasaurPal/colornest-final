@@ -8,7 +8,8 @@ import { Capacitor } from '@capacitor/core';
 
 export default function AddPageModal({ isOpen, onClose }) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState("");
+  const [progressText, setProgressText] = useState("");
+  const [progressPercent, setProgressPercent] = useState(0);
 
   if (!isOpen) return null;
 
@@ -26,7 +27,7 @@ export default function AddPageModal({ isOpen, onClose }) {
   };
 
   const savePageToDb = async (base64Data, title = "Sorting...") => {
-    const fileName = `img_${Date.now()}.jpg`;
+    const fileName = `img_${Date.now()}_${Math.floor(Math.random()*1000)}.jpg`;
     const finalImageUrl = await saveImageToDevice(base64Data, fileName);
     
     await db.pages.add({
@@ -41,12 +42,15 @@ export default function AddPageModal({ isOpen, onClose }) {
     if (!files.length) return;
 
     setIsProcessing(true);
+    setProgressPercent(0);
+    let totalFiles = files.length;
+    let completedFiles = 0;
+
     try {
       for (const file of files) {
         if (file.type === "application/pdf") {
-          setProgress(`Reading PDF...`);
+          setProgressText(`Reading PDF...`);
           
-          // Read PDF as ArrayBuffer safely
           const arrayBuffer = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (e) => resolve(e.target.result);
@@ -54,15 +58,21 @@ export default function AddPageModal({ isOpen, onClose }) {
             reader.readAsArrayBuffer(file);
           });
 
-          setProgress(`Converting PDF to Images...`);
+          setProgressText(`Converting PDF...`);
           const images = await convertPdfToImages(arrayBuffer);
           
           for (let i = 0; i < images.length; i++) {
-             setProgress(`Saving Page ${i + 1}/${images.length}...`);
+             // Calculate overall progress based on pages processed
+             let pagePercent = Math.round(((i + 1) / images.length) * 100);
+             setProgressText(`Saving Page ${i + 1} of ${images.length}...`);
+             setProgressPercent(pagePercent);
+             
              await savePageToDb(images[i], `${file.name.replace('.pdf', '')} - Page ${i+1}`);
           }
         } else {
-          setProgress(`Compressing Image...`);
+          setProgressText(`Compressing Image...`);
+          setProgressPercent(50); // Halfway there while compressing
+          
           const options = { maxSizeMB: 0.5, maxWidthOrHeight: 600, useWebWorker: true };
           const compressedFile = await imageCompression(file, options);
           
@@ -70,18 +80,30 @@ export default function AddPageModal({ isOpen, onClose }) {
             const reader = new FileReader();
             reader.readAsDataURL(compressedFile);
             reader.onloadend = async () => {
+              setProgressText(`Saving Image...`);
+              setProgressPercent(90);
               await savePageToDb(reader.result);
               resolve();
             };
           });
         }
+        
+        completedFiles++;
+        // Update overall progress if multiple files were selected
+        setProgressPercent(Math.round((completedFiles / totalFiles) * 100));
       }
-      setIsProcessing(false);
-      onClose();
+      
+      setProgressPercent(100);
+      setTimeout(() => {
+        setIsProcessing(false);
+        onClose();
+      }, 500); // Small delay so the user sees 100%
+      
     } catch (error) {
       console.error(error);
       alert("Error: " + error.message);
       setIsProcessing(false);
+      setProgressPercent(0);
     }
   };
 
@@ -90,11 +112,23 @@ export default function AddPageModal({ isOpen, onClose }) {
       <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md p-6 relative">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 z-50 p-1"><X size={24} /></button>
         <h2 className="text-2xl font-bold mb-6 text-center dark:text-white">Upload Pages</h2>
+        
         <div className="border-4 border-dashed border-purple-200 dark:border-purple-900 bg-purple-50 dark:bg-gray-900 rounded-3xl p-8 text-center relative h-64 flex flex-col items-center justify-center overflow-hidden">
           {isProcessing ? (
-            <div className="flex flex-col items-center text-purple-600 dark:text-purple-400">
-              <Loader2 size={48} className="mb-4 animate-spin" />
-              <p className="font-bold text-lg">{progress}</p>
+            <div className="flex flex-col items-center w-full px-4 text-purple-600 dark:text-purple-400">
+              <Loader2 size={40} className="mb-4 animate-spin" />
+              <p className="font-bold text-lg mb-2 text-center">{progressText}</p>
+              
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden shadow-inner mt-2">
+                <div 
+                  className="bg-purple-600 h-full rounded-full transition-all duration-300 ease-out flex items-center justify-center text-[10px] text-white font-bold"
+                  style={{ width: `${progressPercent}%` }}
+                >
+                  {progressPercent > 10 && `${progressPercent}%`}
+                </div>
+              </div>
+              
             </div>
           ) : (
             <div className="flex flex-col items-center text-purple-500 dark:text-purple-400 pointer-events-none">

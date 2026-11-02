@@ -8,3 +8,14 @@ db.version(8).stores({
   learnedPatterns: '++id, categoryId',
   settings: 'key' 
 });
+
+// Auto-create default categories on first load
+db.on('populate', () => {
+  db.categories.bulkAdd([
+    { name: 'Animals', parentId: null },
+    { name: 'Mandalas & Patterns', parentId: null },
+    { name: 'Fantasy & Mythical', parentId: null },
+    { name: 'Botanical & Nature', parentId: null },
+    { name: 'Architecture', parentId: null }
+  ]);
+});

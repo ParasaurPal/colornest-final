@@ -43,7 +43,6 @@ function App() {
       return;
     }
     try {
-      // Save base64 to a temporary file so Android can read it
       const base64Data = base64Image.split(',')[1];
       const fileName = `coloring_page_${Date.now()}.jpg`;
       
@@ -53,11 +52,10 @@ function App() {
         directory: Directory.Cache
       });
 
-      // Open the Android Share/Open With menu
       await Share.share({
         title: 'Open Coloring Page',
         url: result.uri,
-        dialogTitle: 'Open with...'
+        dialogTitle: 'Choose an app to open this image'
       });
     } catch (e) {
       alert("Error opening file: " + e.message);
@@ -72,12 +70,10 @@ function App() {
   };
 
   const filteredPages = (pages || []).filter(page => {
-    // 1. Category Filter
     if (activeCategoryId !== null) {
       const validIds = getCategoryAndChildren(activeCategoryId, categories || []);
       if (!validIds.includes(page.categoryId)) return false;
     }
-    // 2. Search Filter (Title or Tags)
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchTitle = page.title.toLowerCase().includes(q);
@@ -109,7 +105,6 @@ function App() {
             <button onClick={toggleTheme} className="p-2">{isDarkMode ? <Sun size={20} className="text-yellow-400" /> : <Moon size={20} />}</button>
           </div>
         </div>
-        {/* Search Bar */}
         <div className="relative">
           <Search size={18} className="absolute left-3 top-2.5 text-gray-400" />
           <input type="text" placeholder="Search titles or tags..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-white pl-10 pr-4 py-2 rounded-xl outline-none" />
@@ -139,14 +134,12 @@ function App() {
                 <button onClick={() => db.pages.delete(page.id)} className="text-gray-300 dark:text-gray-600 hover:text-red-500"><Trash2 size={14} /></button>
               </div>
               
-              {/* Tags Display */}
               {page.tags && page.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {page.tags.map(tag => <span key={tag} className="text-[9px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded">{tag}</span>)}
                 </div>
               )}
 
-              {/* Open Button */}
               <button onClick={() => openExternal(page.imageUrl)} className="mt-auto w-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
                 <ExternalLink size={12} /> Open Page
               </button>

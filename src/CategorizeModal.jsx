@@ -4,21 +4,27 @@ import { learnPattern } from './localBrain';
 
 export default function CategorizeModal({ page, categories, onClose }) {
   const [title, setTitle] = useState(page.title);
-  const [selectedCat, setSelectedCat] = useState("");
+  const [selectedCat, setSelectedCat] = useState(page.categoryId || "");
   const [tags, setTags] = useState(page.tags ? page.tags.join(', ') : "");
 
   const handleSave = async () => {
     const tagArray = tags.split(',').map(t => t.trim()).filter(t => t !== "");
+    const newCategoryId = selectedCat ? parseInt(selectedCat) : null;
     
     await db.pages.update(page.id, { 
       title: title,
-      categoryId: selectedCat ? parseInt(selectedCat) : null, 
+      categoryId: newCategoryId, 
       isUncategorized: 0, 
       aiStatus: null,
       tags: tagArray
     });
 
-    if (selectedCat) await learnPattern(page.imageUrl, parseInt(selectedCat));
+    // If the user changed the category, force the local brain to learn the correction
+    if (newCategoryId) {
+      await learnPattern(page.imageUrl, newCategoryId);
+      console.log(`🧠 User corrected category. Learned new pattern for ID: ${newCategoryId}`);
+    }
+    
     onClose();
   };
 
@@ -40,9 +46,9 @@ export default function CategorizeModal({ page, categories, onClose }) {
         <label className="text-xs font-bold text-gray-600 dark:text-gray-400">Title</label>
         <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full p-2 border rounded-lg mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
 
-        <label className="text-xs font-bold text-gray-600 dark:text-gray-400">Category</label>
+        <label className="text-xs font-bold text-gray-600 dark:text-gray-400">Category (Train AI)</label>
         <select className="w-full p-2 border rounded-lg mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white" onChange={(e) => setSelectedCat(e.target.value)} value={selectedCat}>
-          <option value="" disabled>Select a category...</option>
+          <option value="">Leave as Uncategorized</option>
           {renderOptions(null)}
         </select>
 

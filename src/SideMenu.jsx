@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, Folder, FolderOpen, X, Plus } from 'lucide-react';
+import { ChevronRight, ChevronDown, X, Plus, Settings } from 'lucide-react';
 import { db } from './db';
 
-export default function SideMenu({ isOpen, onClose, categories, activeCategoryId, setActiveCategoryId }) {
+export default function SideMenu({ isOpen, onClose, categories, activeCategoryId, setActiveCategoryId, onOpenSettings }) {
   const [expanded, setExpanded] = useState({});
 
   if (!isOpen) return null;
@@ -20,7 +20,6 @@ export default function SideMenu({ isOpen, onClose, categories, activeCategoryId
     }
   };
 
-  // Recursive function to render the tree
   const renderTree = (parentId = null, depth = 0) => {
     const nodes = categories.filter(c => c.parentId === parentId);
     
@@ -34,28 +33,19 @@ export default function SideMenu({ isOpen, onClose, categories, activeCategoryId
         <div key={node.id}>
           <div 
             onClick={() => setActiveCategoryId(node.id)}
-            className={`flex items-center py-2 px-2 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 font-bold' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+            className={`flex items-center py-3 px-3 rounded-xl cursor-pointer transition-colors ${isActive ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 font-bold' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+            style={{ paddingLeft: `${depth * 16 + 12}px` }}
           >
             {/* Expand/Collapse Arrow */}
-            <div onClick={(e) => toggleExpand(node.id, e)} className="w-6 h-6 flex items-center justify-center mr-1">
+            <div onClick={(e) => toggleExpand(node.id, e)} className="w-6 h-6 flex items-center justify-center mr-2">
               {hasChildren ? (
-                isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />
+                isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />
               ) : <div className="w-4" />}
             </div>
-
-            {/* Folder Icon */}
-            {isExpanded ? <FolderOpen size={16} className="mr-2 text-purple-500" /> : <Folder size={16} className="mr-2 text-gray-400" />}
             
-            <span className="flex-grow text-sm truncate">{node.name}</span>
-            
-            {/* Add subcategory button */}
-            <button onClick={(e) => { e.stopPropagation(); handleAddCategory(node.id); }} className="text-gray-400 hover:text-purple-500 p-1">
-              <Plus size={14} />
-            </button>
+            <span className="flex-grow text-base truncate">{node.name}</span>
           </div>
           
-          {/* Render Children */}
           {isExpanded && hasChildren && (
             <div>
               {renderTree(node.id, depth + 1)}
@@ -80,19 +70,21 @@ export default function SideMenu({ isOpen, onClose, categories, activeCategoryId
           {/* All Pages Option */}
           <div 
             onClick={() => setActiveCategoryId(null)}
-            className={`flex items-center py-2 px-2 rounded-lg cursor-pointer mb-2 ${activeCategoryId === null ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 font-bold' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+            className={`flex items-center py-3 px-3 rounded-xl cursor-pointer mb-2 ${activeCategoryId === null ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 font-bold' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
           >
-            <Folder size={16} className="mr-2 text-gray-400 ml-6" />
-            <span className="flex-grow text-sm">All Pages</span>
+            <span className="flex-grow text-base ml-8">All Pages</span>
           </div>
           
           {/* The Tree */}
           {renderTree(null)}
         </div>
 
-        <div className="p-4 border-t dark:border-gray-800">
-          <button onClick={() => handleAddCategory(null)} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-purple-700">
+        <div className="p-4 border-t dark:border-gray-800 flex flex-col gap-2">
+          <button onClick={() => handleAddCategory(null)} className="w-full bg-purple-600 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-purple-700">
             <Plus size={18} /> Add Root Category
+          </button>
+          <button onClick={onOpenSettings} className="w-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-200 dark:hover:bg-gray-700">
+            <Settings size={18} /> Settings
           </button>
         </div>
       </div>
