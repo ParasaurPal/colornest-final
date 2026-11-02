@@ -1,4 +1,3 @@
-cat > README.md << 'EOF'
 # 🎨 ColorNest
 
 **ColorNest** is a powerful, AI-driven mobile catalog for organizing physical and digital coloring books. Built as a mobile-first application using React, Capacitor, and Local AI.
