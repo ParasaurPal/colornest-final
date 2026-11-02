@@ -16,13 +16,4 @@
 *   Capacitor (Mobile Wrapper)
 *   Dexie.js (IndexedDB)
 *   Google Gemini API
-
-## 🚀 Local Development
-1. Clone: `git clone https://github.com/ParasaurPal/colornest-final.git`
-2. Install: `npm install`
-3. Key: `export VITE_GEMINI_KEY="your_key"`
-4. Run: `npm run dev -- --force`
-
-## 📱 Building the APK
-This repository uses GitHub Actions. Push to `main`, go to the **Actions** tab, download the APK from **Artifacts**, and install it!
-EOF
+  
