@@ -12,7 +12,6 @@ export default function AddPageModal({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
-  // NATIVE FILE SAVING
   const saveImageToDevice = async (base64Data, fileName) => {
     if (Capacitor.isNativePlatform()) {
       const savedFile = await Filesystem.writeFile({
@@ -21,10 +20,9 @@ export default function AddPageModal({ isOpen, onClose }) {
         directory: Directory.Data,
         recursive: true
       });
-      // Return a native URL that the Android WebView can read
       return Capacitor.convertFileSrc(savedFile.uri);
     }
-    return base64Data; // Fallback for Chrome testing
+    return base64Data; 
   };
 
   const savePageToDb = async (base64Data, title = "Sorting...") => {
@@ -46,14 +44,25 @@ export default function AddPageModal({ isOpen, onClose }) {
     try {
       for (const file of files) {
         if (file.type === "application/pdf") {
-          setProgress(`Converting PDF...`);
-          const images = await convertPdfToImages(file);
+          setProgress(`Reading PDF...`);
+          
+          // Read PDF as ArrayBuffer safely
+          const arrayBuffer = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(new Error("Failed to read PDF file"));
+            reader.readAsArrayBuffer(file);
+          });
+
+          setProgress(`Converting PDF to Images...`);
+          const images = await convertPdfToImages(arrayBuffer);
+          
           for (let i = 0; i < images.length; i++) {
              setProgress(`Saving Page ${i + 1}/${images.length}...`);
-             await savePageToDb(images[i], `${file.name} - Page ${i+1}`);
+             await savePageToDb(images[i], `${file.name.replace('.pdf', '')} - Page ${i+1}`);
           }
         } else {
-          setProgress(`Compressing...`);
+          setProgress(`Compressing Image...`);
           const options = { maxSizeMB: 0.5, maxWidthOrHeight: 600, useWebWorker: true };
           const compressedFile = await imageCompression(file, options);
           
@@ -70,6 +79,7 @@ export default function AddPageModal({ isOpen, onClose }) {
       setIsProcessing(false);
       onClose();
     } catch (error) {
+      console.error(error);
       alert("Error: " + error.message);
       setIsProcessing(false);
     }
@@ -90,9 +100,9 @@ export default function AddPageModal({ isOpen, onClose }) {
             <div className="flex flex-col items-center text-purple-500 dark:text-purple-400 pointer-events-none">
               <div className="flex gap-4 mb-4"><Upload size={48} /><FileText size={48} /></div>
               <p className="font-bold text-xl">Tap to Upload</p>
+              <p className="text-sm mt-2 opacity-70">Images or PDFs</p>
             </div>
           )}
-          {/* Accept PDFs and Images */}
           <input type="file" accept="image/*,application/pdf" multiple onChange={handleFileUpload} disabled={isProcessing} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
         </div>
       </div>

@@ -3,14 +3,14 @@ import * as pdfjsLib from 'pdfjs-dist';
 // Point to the local worker file in the public folder
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
-export async function convertPdfToImages(file) {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+// Accept the arrayBuffer directly to avoid Android file reading issues
+export async function convertPdfToImages(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const images = [];
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); // Scale 2.0 for good quality
+    const viewport = page.getViewport({ scale: 2.0 }); 
     
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -19,7 +19,6 @@ export async function convertPdfToImages(file) {
 
     await page.render({ canvasContext: context, viewport: viewport }).promise;
     
-    // Convert canvas to base64 image
     images.push(canvas.toDataURL('image/jpeg', 0.8));
   }
   
