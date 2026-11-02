@@ -28,7 +28,7 @@ jobs:
       uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
-        java-version: '21' # <--- THE FIX IS HERE
+        java-version: '21'
 
     - name: Sync Capacitor
       run: npx cap sync android
@@ -42,8 +42,12 @@ jobs:
         chmod +x gradlew
         ./gradlew assembleDebug
 
+    # THIS IS THE NEW STEP THAT RENAMES THE FILE
+    - name: Rename APK
+      run: mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/ColorNest.apk
+
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: ColorNest-APK
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        path: android/app/build/outputs/apk/debug/ColorNest.apk
