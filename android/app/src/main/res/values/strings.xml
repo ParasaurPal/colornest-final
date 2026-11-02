@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ColorNest</string>
+    <string name="title_activity_main">ColorNest</string>
+    <string name="package_name">com.yourname.colornest</string>
+    <string name="custom_url_scheme">com.yourname.colornest</string>
+</resources>
