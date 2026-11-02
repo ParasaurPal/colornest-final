@@ -6,6 +6,7 @@ import AddPageModal from './AddPageModal';
 import SideMenu from './SideMenu';
 import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
+import Onboarding from './Onboarding'; // Import the new tutorial
 import { startBackgroundWorker } from './backgroundWorker';
 import { Capacitor } from '@capacitor/core';
 import { Share } from '@capacitor/share';
@@ -19,6 +20,9 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // State for tutorial
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
@@ -28,7 +32,19 @@ function App() {
     if (localStorage.getItem('theme') === 'dark') {
       setIsDarkMode(true); document.documentElement.classList.add('dark');
     }
+
+    // Check if user has seen the tutorial
+    db.settings.get('hasSeenTutorial').then(setting => {
+      if (!setting || !setting.value) {
+        setShowTutorial(true);
+      }
+    });
   }, []);
+
+  const completeTutorial = async () => {
+    await db.settings.put({ key: 'hasSeenTutorial', value: true });
+    setShowTutorial(false);
+  };
 
   const toggleTheme = () => {
     const newTheme = !isDarkMode;
@@ -86,6 +102,9 @@ function App() {
   return (
     <div className="min-h-screen bg-[#F8F9FA] dark:bg-[#121212] font-sans pb-10 transition-colors duration-300">
       
+      {/* Show Tutorial on First Launch */}
+      {showTutorial && <Onboarding onComplete={completeTutorial} />}
+
       <AddPageModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
       <SideMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} categories={categories || []} activeCategoryId={activeCategoryId} setActiveCategoryId={(id) => { setActiveCategoryId(id); setIsMenuOpen(false); }} onOpenSettings={() => { setIsMenuOpen(false); setIsSettingsOpen(true); }} />
       {categorizingPage && <CategorizeModal page={categorizingPage} categories={categories || []} onClose={() => setCategorizingPage(null)} />}
