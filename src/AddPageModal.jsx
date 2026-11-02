@@ -1,88 +1,99 @@
 import React, { useState } from 'react';
 import imageCompression from 'browser-image-compression';
 import { db } from './db';
-import { X, Upload, Loader2 } from 'lucide-react';
+import { X, Upload, Loader2, FileText } from 'lucide-react';
+import { convertPdfToImages } from './pdfConverter';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
 
 export default function AddPageModal({ isOpen, onClose }) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState("");
 
   if (!isOpen) return null;
 
-  const handleImageUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  // NATIVE FILE SAVING
+  const saveImageToDevice = async (base64Data, fileName) => {
+    if (Capacitor.isNativePlatform()) {
+      const savedFile = await Filesystem.writeFile({
+        path: `colornest/${fileName}`,
+        data: base64Data.split(',')[1],
+        directory: Directory.Data,
+        recursive: true
+      });
+      // Return a native URL that the Android WebView can read
+      return Capacitor.convertFileSrc(savedFile.uri);
+    }
+    return base64Data; // Fallback for Chrome testing
+  };
+
+  const savePageToDb = async (base64Data, title = "Sorting...") => {
+    const fileName = `img_${Date.now()}.jpg`;
+    const finalImageUrl = await saveImageToDevice(base64Data, fileName);
+    
+    await db.pages.add({
+      title: title, categoryId: null, complexity: "Beginner", time: "TBD", tool: "TBD",
+      imageUrl: finalImageUrl, isFavorite: 0, isCompleted: 0, progress: 0, isUncategorized: 1, 
+      isProcessingAi: 0, aiStatus: "Queued", tags: []
+    });
+  };
+
+  const handleFileUpload = async (event) => {
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
 
     setIsProcessing(true);
     try {
-      const options = { maxSizeMB: 0.5, maxWidthOrHeight: 600, useWebWorker: true };
-      const compressedFile = await imageCompression(file, options);
-      
-      const reader = new FileReader();
-      reader.readAsDataURL(compressedFile);
-      reader.onloadend = async () => {
-        try {
-          await db.pages.add({
-            title: "Sorting...",
-            category: "Uncategorized",
-            categoryColor: "bg-gray-400",
-            complexity: "Beginner",
-            time: "TBD",
-            tool: "TBD",
-            imageUrl: reader.result,
-            isFavorite: 0,      // <--- Changed to 0
-            isCompleted: 0,     // <--- Changed to 0
-            progress: 0,
-            isUncategorized: 1, // <--- Changed to 1
-            isProcessingAi: 0,  // <--- Changed to 0
-            aiStatus: "Queued"
-          });
+      for (const file of files) {
+        if (file.type === "application/pdf") {
+          setProgress(`Converting PDF...`);
+          const images = await convertPdfToImages(file);
+          for (let i = 0; i < images.length; i++) {
+             setProgress(`Saving Page ${i + 1}/${images.length}...`);
+             await savePageToDb(images[i], `${file.name} - Page ${i+1}`);
+          }
+        } else {
+          setProgress(`Compressing...`);
+          const options = { maxSizeMB: 0.5, maxWidthOrHeight: 600, useWebWorker: true };
+          const compressedFile = await imageCompression(file, options);
           
-          setIsProcessing(false);
-          onClose();
-        } catch (dbError) {
-          alert("Database Error: " + dbError.message);
-          setIsProcessing(false);
+          await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(compressedFile);
+            reader.onloadend = async () => {
+              await savePageToDb(reader.result);
+              resolve();
+            };
+          });
         }
-      };
-    } catch (error) {
-      console.error("Error:", error);
+      }
       setIsProcessing(false);
-      alert("Failed to process image.");
+      onClose();
+    } catch (error) {
+      alert("Error: " + error.message);
+      setIsProcessing(false);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 flex justify-center items-center z-[100] p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md p-6 relative">
-        
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 z-50 bg-white rounded-full p-1">
-          <X size={24} />
-        </button>
-
-        <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">Upload Page</h2>
-
-        <div className="border-4 border-dashed border-purple-200 bg-purple-50 rounded-3xl p-8 text-center relative h-64 flex flex-col items-center justify-center overflow-hidden">
-          
+      <div className="bg-white dark:bg-gray-800 rounded-3xl w-full max-w-md p-6 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 z-50 p-1"><X size={24} /></button>
+        <h2 className="text-2xl font-bold mb-6 text-center dark:text-white">Upload Pages</h2>
+        <div className="border-4 border-dashed border-purple-200 dark:border-purple-900 bg-purple-50 dark:bg-gray-900 rounded-3xl p-8 text-center relative h-64 flex flex-col items-center justify-center overflow-hidden">
           {isProcessing ? (
-            <div className="flex flex-col items-center text-purple-600">
+            <div className="flex flex-col items-center text-purple-600 dark:text-purple-400">
               <Loader2 size={48} className="mb-4 animate-spin" />
-              <p className="font-bold text-lg">Saving...</p>
+              <p className="font-bold text-lg">{progress}</p>
             </div>
           ) : (
-            <div className="flex flex-col items-center text-purple-500 pointer-events-none">
-              <Upload size={64} className="mb-4" />
+            <div className="flex flex-col items-center text-purple-500 dark:text-purple-400 pointer-events-none">
+              <div className="flex gap-4 mb-4"><Upload size={48} /><FileText size={48} /></div>
               <p className="font-bold text-xl">Tap to Upload</p>
-              <p className="text-sm mt-2 opacity-70">AI will sort it in the background</p>
             </div>
           )}
-
-          <input 
-            type="file" 
-            accept="image/*" 
-            onChange={handleImageUpload} 
-            disabled={isProcessing}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-          />
+          {/* Accept PDFs and Images */}
+          <input type="file" accept="image/*,application/pdf" multiple onChange={handleFileUpload} disabled={isProcessing} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
         </div>
       </div>
     </div>

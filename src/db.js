@@ -2,8 +2,9 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('ColorNestDB');
 
-// Added a new table for our Local AI "Memory"
-db.version(5).stores({
-  pages: '++id, title, category, complexity, isFavorite, isCompleted, isUncategorized, aiStatus',
-  learnedPatterns: '++id, category' // Stores image fingerprints for local matching
+db.version(8).stores({
+  pages: '++id, title, categoryId, complexity, isFavorite, isCompleted, isUncategorized, aiStatus, aiSuggestedCategoryId, *tags',
+  categories: '++id, name, parentId',
+  learnedPatterns: '++id, categoryId',
+  settings: 'key' 
 });

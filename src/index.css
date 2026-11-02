@@ -4,4 +4,20 @@
 
 body {
   background-color: #F8F9FA;
+  transition: background-color 0.3s ease;
+  /* Native App Feel */
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+html.dark body {
+  background-color: #121212;
+  color: #ffffff;
+}
+
+html.dark .coloring-image {
+  filter: invert(1) hue-rotate(180deg);
+  background-color: #ffffff;
+  mix-blend-mode: screen; 
 }
