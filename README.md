@@ -1,6 +1,6 @@
 # 🎨 ColorNest
 
-**ColorNest** is a powerful, AI-driven mobile catalog for organizing digital coloring pages. Built as a mobile-first application using React, Capacitor, and Local AI.
+**ColorNest** is a powerful, AI-driven mobile catalog for organizing digital coloring pages. Built as a mobile-first application using Android Studio.
 
 ## ✨ Features
 *   **📸 1-Tap Uploads:** Instantly snap or upload photos of coloring pages.
