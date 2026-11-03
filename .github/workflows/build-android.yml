@@ -1,52 +1,26 @@
-name: Build Android APK
+name: Build & Publish Release APK
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    tags:
+      - '*'
 
 jobs:
-  build:
+  Gradle:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout Source
-      uses: actions/checkout@v5
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v5
+    - name: checkout code
+      uses: actions/checkout@v2
+    - name: setup jdk
+      uses: actions/setup-java@v1
       with:
-        node-version: 22
-
-    - name: Install Dependencies
-      run: npm install
-
-    - name: Build Web App
-      run: npm run build
-
-    - name: Setup Java
-      uses: actions/setup-java@v5
-      with:
-        distribution: 'temurin'
-        java-version: '21'
-
-    - name: Sync Capacitor
-      run: npx cap sync android
-
-    - name: Create local.properties
-      run: echo "sdk.dir=/usr/local/lib/android/sdk" > android/local.properties
-
-    - name: Build APK
-      working-directory: ./android
-      run: |
-        chmod +x gradlew
-        ./gradlew assembleDebug
-
-    - name: Rename APK
-      run: mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/ColorNest.apk
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v6
-      with:
-        name: ColorNest-APK
-        path: android/app/build/outputs/apk/debug/ColorNest.apk
+        java-version: 11
+    - name: Make Gradle executable
+      run: chmod +x ./gradlew
+    - name: Build Release APK
+      run: ./gradlew assembleRelease
+    - name: Releasing using Hub
+      uses: sangatdesai/release-apk@main
+      env:
+       GITHUB_TOKEN: ${{ secrets.TOKEN }}
+       APP_FOLDER: app
