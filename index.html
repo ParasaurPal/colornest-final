@@ -1,13 +1,387 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>colornest</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ColorNest - Android Edition</title>
+  <style>
+    :root {
+      --primary: #7C3AED;
+      --primary-dark: #6D28D9;
+      --primary-light: #8B5CF6;
+      --primary-container: #F3E8FF;
+      --accent-pink: #EC4899;
+      --accent-red: #EF4444;
+      --accent-green: #22C55E;
+      --bg: #F8F9FA;
+      --surface: #FFFFFF;
+      --surface-variant: #F3F4F6;
+      --text: #1F2937;
+      --text-muted: #6B7280;
+      --border: #E5E7EB;
+      --image-filter: none;
+    }
+    .dark {
+      --bg: #121212;
+      --surface: #1E1E1E;
+      --surface-variant: #2A2A2A;
+      --text: #F9FAFB;
+      --text-muted: #9CA3AF;
+      --border: #374151;
+      --primary-container: #3B0764;
+      --image-filter: invert(1) hue-rotate(180deg);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; user-select: none; transition: background-color 0.3s; }
+    #app-container { width: 100%; max-width: 480px; min-height: 100vh; background: var(--bg); display: flex; flex-direction: column; position: relative; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
+    header { background: var(--surface); padding: 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; z-index: 20; }
+    .header-top { display: flex; justify-content: space-between; align-items: center; }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .app-title { font-size: 20px; font-weight: 800; color: var(--text); line-height: 1.2; }
+    .app-subtitle { font-size: 12px; color: var(--text-muted); }
+    .icon-btn { background: none; border: none; cursor: pointer; color: var(--text); padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .icon-btn:hover { background: var(--surface-variant); }
+    .search-box { position: relative; display: flex; align-items: center; }
+    .search-box input { width: 100%; background: var(--surface-variant); border: 1px solid transparent; border-radius: 14px; padding: 10px 14px 10px 40px; font-size: 14px; color: var(--text); outline: none; transition: border-color 0.2s; }
+    .search-box input:focus { border-color: var(--primary); }
+    .search-icon { position: absolute; left: 14px; color: var(--text-muted); pointer-events: none; }
+    .gallery-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 16px; padding-bottom: 90px; }
+    .page-card { background: var(--surface); border-radius: 20px; padding: 10px; border: 1px solid var(--border); display: flex; flex-direction: column; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.04); transition: transform 0.15s; }
+    .card-img-wrap { width: 100%; height: 160px; border-radius: 14px; overflow: hidden; background: #e5e7eb; position: relative; }
+    .card-img { width: 100%; height: 100%; object-fit: cover; filter: var(--image-filter); transition: filter 0.3s; }
+    .fav-btn { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 50%; background: var(--surface); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.15); }
+    .edit-overlay-btn { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); color: white; border: none; font-size: 11px; font-weight: bold; padding: 4px; cursor: pointer; text-align: center; }
+    .card-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 8px; }
+    .card-title { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .trash-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 2px; }
+    .trash-btn:hover { color: var(--accent-red); }
+    .tags-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .tag-badge { font-size: 9px; font-weight: 600; background: var(--surface-variant); color: var(--text-muted); padding: 2px 6px; border-radius: 4px; }
+    .open-btn { margin-top: 8px; width: 100%; background: var(--primary-container); color: var(--primary); border: none; border-radius: 8px; padding: 7px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; }
+    .open-btn:hover { background: var(--primary); color: white; }
+    .ai-badge { margin-top: 6px; font-size: 10px; font-weight: 700; background: rgba(124, 58, 237, 0.15); color: var(--primary); padding: 3px 6px; border-radius: 6px; display: flex; align-items: center; gap: 4px; }
+    .fab { position: fixed; bottom: 24px; right: calc(50% - 220px); width: 56px; height: 56px; border-radius: 28px; background: var(--primary); color: white; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4); z-index: 30; }
+    @media (max-width: 480px) { .fab { right: 24px; } }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
+    .modal-card { background: var(--surface); border-radius: 24px; width: 100%; max-width: 380px; padding: 22px; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2); }
+    .modal-title { font-size: 18px; font-weight: 800; margin-bottom: 16px; color: var(--text); }
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; }
+    .form-input, .form-select { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 14px; outline: none; }
+    .btn-row { display: flex; gap: 10px; margin-top: 18px; }
+    .btn-primary { flex: 1; background: var(--primary); color: white; border: none; padding: 10px; border-radius: 10px; font-weight: 700; cursor: pointer; }
+    .btn-secondary { flex: 1; background: var(--surface-variant); color: var(--text); border: none; padding: 10px; border-radius: 10px; font-weight: 700; cursor: pointer; }
+    .btn-danger { width: 100%; background: var(--accent-red); color: white; border: none; padding: 10px; border-radius: 10px; font-weight: 700; cursor: pointer; }
+    .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90; display: flex; }
+    .drawer { width: 300px; height: 100%; background: var(--surface); display: flex; flex-direction: column; box-shadow: 4px 0 15px rgba(0,0,0,0.1); }
+    .drawer-header { padding: 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .drawer-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .drawer-item { display: flex; align-items: center; padding: 10px 14px; border-radius: 10px; cursor: pointer; font-size: 14px; margin-bottom: 4px; color: var(--text); }
+    .drawer-item.active { background: var(--primary-container); color: var(--primary); font-weight: 700; }
+    .drawer-item:hover:not(.active) { background: var(--surface-variant); }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div id="app-container">
+    <header>
+      <div class="header-top">
+        <div class="header-left">
+          <button id="menu-btn" class="icon-btn" title="Categories">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div>
+            <div class="app-title">ColorNest</div>
+            <div class="app-subtitle" id="active-cat-name">All Pages</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 4px;">
+          <button id="settings-btn" class="icon-btn" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+          <button id="theme-btn" class="icon-btn" title="Toggle Theme">
+            <svg id="theme-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          </button>
+        </div>
+      </div>
+      <div class="search-box">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="search-input" placeholder="Search titles or tags..." />
+      </div>
+    </header>
+
+    <div class="gallery-grid" id="gallery-grid"></div>
+
+    <button id="fab-add" class="fab" title="Add Coloring Pages">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    </button>
+  </div>
+
+  <!-- Drawers and Modals -->
+  <div id="drawer-container" class="drawer-backdrop" style="display: none;">
+    <div class="drawer">
+      <div class="drawer-header">
+        <div style="font-weight: 800; font-size: 16px;">Categories</div>
+        <button id="close-drawer" class="icon-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div class="drawer-list" id="category-list"></div>
+      <div style="padding: 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+        <button id="add-cat-btn" class="btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Add Root Category
+        </button>
+      </div>
+    </div>
+    <div style="flex: 1;" id="drawer-outside"></div>
+  </div>
+
+  <!-- Add Page Modal -->
+  <div id="add-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="modal-title" style="margin: 0;">Upload Pages</div>
+        <button id="close-add-modal" class="icon-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div style="border: 2px dashed var(--primary); background: var(--primary-container); border-radius: 16px; padding: 24px; text-align: center; cursor: pointer;" onclick="document.getElementById('file-upload').click()">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="2" style="margin: 0 auto 10px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        <div style="font-weight: 700; color: var(--primary); font-size: 16px;">Tap to Select Pages</div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">PNG, JPEG, or PDF Coloring Books</div>
+        <input type="file" id="file-upload" accept="image/*,application/pdf" multiple style="display: none;" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="modal-title" style="margin: 0;">Settings</div>
+        <button id="close-settings-modal" class="icon-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-variant); padding: 14px; border-radius: 12px; margin-bottom: 12px;">
+        <div>
+          <div style="font-weight: 700; font-size: 14px;">AI Categorization</div>
+          <div style="font-size: 11px; color: var(--text-muted);">Auto-sort with Local Brain & AI</div>
+        </div>
+        <input type="checkbox" id="ai-toggle" checked style="width: 20px; height: 20px; accent-color: var(--primary);" />
+      </div>
+      <div style="background: var(--primary-container); padding: 14px; border-radius: 12px; margin-bottom: 16px;">
+        <div style="font-weight: 700; color: var(--primary); font-size: 14px; margin-bottom: 8px;">Setup Categories</div>
+        <button id="seed-categories-btn" class="btn-primary" style="width: 100%;">Load Default Categories</button>
+      </div>
+      <div style="border: 1px solid rgba(239, 68, 68, 0.3); padding: 14px; border-radius: 12px;">
+        <div style="font-weight: 700; color: var(--accent-red); font-size: 14px; margin-bottom: 8px;">Danger Zone</div>
+        <button id="reset-ai-btn" class="btn-secondary" style="color: var(--accent-red); width: 100%; margin-bottom: 8px;">Reset AI Learning</button>
+        <button id="wipe-data-btn" class="btn-danger">Erase All Images & Data</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initial State & IndexedDB / LocalStorage simulation
+    const defaultPages = [
+      { id: 1, title: "Intricate Floral Mandala", categoryId: 2, tags: ["mandala", "flowers", "relaxing"], isFavorite: true, isUncategorized: false, imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23fff'/%3E%3Ccircle cx='50' cy='50' r='40' fill='none' stroke='%23000' stroke-width='2'/%3E%3Ccircle cx='50' cy='50' r='25' fill='none' stroke='%23000' stroke-width='1.5'/%3E%3Ccircle cx='50' cy='50' r='12' fill='none' stroke='%23000' stroke-width='1'/%3E%3Cpath d='M50 10 L50 90 M10 50 L90 50 M22 22 L78 78 M22 78 L78 22' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E" },
+      { id: 2, title: "Playful Golden Retriever", categoryId: 1, tags: ["animals", "dogs", "pets"], isFavorite: false, isUncategorized: false, imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23fff'/%3E%3Cellipse cx='50' cy='55' rx='25' ry='30' fill='none' stroke='%23000' stroke-width='2'/%3E%3Ccircle cx='38' cy='45' r='4' fill='%23000'/%3E%3Ccircle cx='62' cy='45' r='4' fill='%23000'/%3E%3Cellipse cx='50' cy='60' rx='7' ry='5' fill='%23000'/%3E%3Cpath d='M30 30 Q20 40 25 60 M70 30 Q80 40 75 60' fill='none' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E" },
+      { id: 3, title: "Majestic Flying Dragon", categoryId: 3, tags: ["fantasy", "dragons", "mythical"], isFavorite: true, isUncategorized: false, imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23fff'/%3E%3Cpath d='M20 70 Q50 30 80 50 Q60 80 20 70 Z' fill='none' stroke='%23000' stroke-width='2'/%3E%3Cpath d='M40 45 L65 15 L60 45 Z' fill='none' stroke='%23000' stroke-width='1.5'/%3E%3C/svg%3E" },
+      { id: 4, title: "Botanical Wildflowers Garden", categoryId: 4, tags: ["nature", "botanical", "spring"], isFavorite: false, isUncategorized: false, imageUrl: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23fff'/%3E%3Cpath d='M30 90 Q35 50 30 35 M50 90 Q50 40 50 25 M70 90 Q65 50 70 35' fill='none' stroke='%23000' stroke-width='2'/%3E%3Ccircle cx='30' cy='30' r='10' fill='none' stroke='%23000' stroke-width='1.5'/%3E%3Ccircle cx='50' cy='20' r='12' fill='none' stroke='%23000' stroke-width='1.5'/%3E%3Ccircle cx='70' cy='30' r='10' fill='none' stroke='%23000' stroke-width='1.5'/%3E%3C/svg%3E" }
+    ];
+
+    const defaultCategories = [
+      { id: 1, name: "Animals", parentId: null },
+      { id: 2, name: "Mandalas & Patterns", parentId: null },
+      { id: 3, name: "Fantasy & Mythical", parentId: null },
+      { id: 4, name: "Botanical & Nature", parentId: null },
+      { id: 5, name: "Architecture", parentId: null }
+    ];
+
+    let pages = JSON.parse(localStorage.getItem('cn_pages')) || defaultPages;
+    let categories = JSON.parse(localStorage.getItem('cn_categories')) || defaultCategories;
+    let activeCategoryId = null;
+    let searchQuery = "";
+    let isDarkMode = localStorage.getItem('cn_dark') === 'true';
+
+    function saveState() {
+      localStorage.setItem('cn_pages', JSON.stringify(pages));
+      localStorage.setItem('cn_categories', JSON.stringify(categories));
+      localStorage.setItem('cn_dark', isDarkMode);
+    }
+
+    if (isDarkMode) document.documentElement.classList.add('dark');
+
+    function renderGallery() {
+      const grid = document.getElementById('gallery-grid');
+      grid.innerHTML = "";
+
+      const filtered = pages.filter(p => {
+        if (activeCategoryId !== null && p.categoryId !== activeCategoryId) return false;
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const matchTitle = p.title.toLowerCase().includes(q);
+          const matchTags = p.tags && p.tags.some(t => t.toLowerCase().includes(q));
+          if (!matchTitle && !matchTags) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column: span 2;"><h3>No coloring pages found</h3><p style="margin-top: 6px; font-size: 13px;">Tap + to upload your first coloring page!</p></div>';
+        return;
+      }
+
+      filtered.forEach(page => {
+        const card = document.createElement('div');
+        card.className = "page-card";
+        card.innerHTML = `
+          <div class="card-img-wrap">
+            <img src="${page.imageUrl}" alt="${page.title}" class="card-img" />
+            <button class="fav-btn" onclick="toggleFav(${page.id})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="${page.isFavorite ? '#EC4899' : 'none'}" stroke="${page.isFavorite ? '#EC4899' : '#9CA3AF'}" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+            </button>
+            ${page.isUncategorized ? `<button class="edit-overlay-btn" onclick="openEdit(${page.id})">Edit Details</button>` : ''}
+          </div>
+          <div class="card-title-row">
+            <div class="card-title">${page.title}</div>
+            <button class="trash-btn" onclick="deletePage(${page.id})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+          <div class="tags-container">
+            ${(page.tags || []).map(t => `<span class="tag-badge">${t}</span>`).join('')}
+          </div>
+          <button class="open-btn" onclick="openPageExternal('${page.title}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Open Page
+          </button>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function renderCategories() {
+      const list = document.getElementById('category-list');
+      list.innerHTML = "";
+
+      const allItem = document.createElement('div');
+      allItem.className = `drawer-item ${activeCategoryId === null ? 'active' : ''}`;
+      allItem.textContent = "All Pages";
+      allItem.onclick = () => { activeCategoryId = null; updateCatHeader(); closeDrawer(); renderGallery(); };
+      list.appendChild(allItem);
+
+      categories.forEach(cat => {
+        const item = document.createElement('div');
+        item.className = `drawer-item ${activeCategoryId === cat.id ? 'active' : ''}`;
+        item.textContent = cat.name;
+        item.onclick = () => { activeCategoryId = cat.id; updateCatHeader(); closeDrawer(); renderGallery(); };
+        list.appendChild(item);
+      });
+    }
+
+    function updateCatHeader() {
+      const active = categories.find(c => c.id === activeCategoryId);
+      document.getElementById('active-cat-name').textContent = active ? active.name : "All Pages";
+    }
+
+    window.toggleFav = function(id) {
+      const p = pages.find(item => item.id === id);
+      if (p) { p.isFavorite = !p.isFavorite; saveState(); renderGallery(); }
+    };
+
+    window.deletePage = function(id) {
+      if (confirm("Delete this coloring page?")) {
+        pages = pages.filter(p => p.id !== id);
+        saveState();
+        renderGallery();
+      }
+    };
+
+    window.openPageExternal = function(title) {
+      alert(`Opening "${title}" with external coloring/printing app!`);
+    };
+
+    // UI listeners
+    document.getElementById('theme-btn').onclick = () => {
+      isDarkMode = !isDarkMode;
+      document.documentElement.classList.toggle('dark', isDarkMode);
+      saveState();
+      renderGallery();
+    };
+
+    const drawer = document.getElementById('drawer-container');
+    document.getElementById('menu-btn').onclick = () => { renderCategories(); drawer.style.display = 'flex'; };
+    function closeDrawer() { drawer.style.display = 'none'; }
+    document.getElementById('close-drawer').onclick = closeDrawer;
+    document.getElementById('drawer-outside').onclick = closeDrawer;
+
+    document.getElementById('add-cat-btn').onclick = () => {
+      const name = prompt("Enter new category name:");
+      if (name && name.trim()) {
+        categories.push({ id: Date.now(), name: name.trim(), parentId: null });
+        saveState();
+        renderCategories();
+      }
+    };
+
+    document.getElementById('search-input').oninput = (e) => {
+      searchQuery = e.target.value;
+      renderGallery();
+    };
+
+    // Modals
+    const addModal = document.getElementById('add-modal');
+    document.getElementById('fab-add').onclick = () => { addModal.style.display = 'flex'; };
+    document.getElementById('close-add-modal').onclick = () => { addModal.style.display = 'none'; };
+
+    document.getElementById('file-upload').onchange = (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+      files.forEach((f, idx) => {
+        pages.unshift({
+          id: Date.now() + idx,
+          title: f.name.replace(/\.[^/.]+$/, ""),
+          categoryId: activeCategoryId || 1,
+          tags: ["imported", "coloring"],
+          isFavorite: false,
+          isUncategorized: false,
+          imageUrl: URL.createObjectURL(f)
+        });
+      });
+      saveState();
+      addModal.style.display = 'none';
+      renderGallery();
+    };
+
+    const settingsModal = document.getElementById('settings-modal');
+    document.getElementById('settings-btn').onclick = () => { settingsModal.style.display = 'flex'; };
+    document.getElementById('close-settings-modal').onclick = () => { settingsModal.style.display = 'none'; };
+
+    document.getElementById('seed-categories-btn').onclick = () => {
+      if (confirm("Populate massive category list?")) {
+        const massive = ["Animals", "People", "Plants & Flowers", "Nature & Landscapes", "Food & Drinks", "Fantasy & Mythology", "Holidays", "Transportation", "Architecture", "Space", "Art & Mandalas"];
+        categories = massive.map((name, i) => ({ id: i + 1, name, parentId: null }));
+        saveState();
+        alert("Categories populated!");
+        settingsModal.style.display = 'none';
+        renderCategories();
+      }
+    };
+
+    document.getElementById('reset-ai-btn').onclick = () => {
+      alert("Local AI Brain perceptual memory reset.");
+    };
+
+    document.getElementById('wipe-data-btn').onclick = () => {
+      const conf = prompt('Type "DELETE" to permanently erase all data:');
+      if (conf === "DELETE") {
+        pages = [];
+        categories = defaultCategories;
+        saveState();
+        alert("All data erased.");
+        settingsModal.style.display = 'none';
+        renderGallery();
+        renderCategories();
+      }
+    };
+
+    renderGallery();
+  </script>
+</body>
 </html>

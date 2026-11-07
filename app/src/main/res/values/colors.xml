@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_primary">#7C3AED</color>
+    <color name="purple_light">#8B5CF6</color>
+    <color name="purple_dark">#6D28D9</color>
+    <color name="accent_pink">#EC4899</color>
+    <color name="bg_light">#F8F9FA</color>
+    <color name="bg_dark">#121212</color>
+    <color name="surface_light">#FFFFFF</color>
+    <color name="surface_dark">#1E1E1E</color>
+    <color name="ic_launcher_bg">#7C3AED</color>
+</resources>

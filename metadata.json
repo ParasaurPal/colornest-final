@@ -1,0 +1,6 @@
+{
+  "name": "ColorNest",
+  "description": "AI-powered mobile catalog and manager for digital coloring pages, physical line art, and PDF coloring books.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

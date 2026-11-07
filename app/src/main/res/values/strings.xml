@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ColorNest</string>
+    <string name="search_hint">Search titles or tags…</string>
+    <string name="all_pages">All Pages</string>
+    <string name="categories_title">Categories</string>
+    <string name="add_root_category">Add Root Category</string>
+    <string name="settings_title">Settings</string>
+    <string name="upload_pages">Upload Pages</string>
+    <string name="tap_to_upload">Tap to Upload</string>
+    <string name="images_or_pdfs">Images or PDFs</string>
+    <string name="edit_details">Edit Details</string>
+    <string name="title_label">Title</string>
+    <string name="category_label">Category (Train AI)</string>
+    <string name="tags_label">Tags (comma separated)</string>
+    <string name="open_page">Open Page</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="ai_categorization">AI Categorization</string>
+    <string name="ai_categorization_desc">Allow AI to assign folders.</string>
+    <string name="setup_categories">Setup Categories</string>
+    <string name="load_default_categories">Load Default Categories</string>
+    <string name="danger_zone">Danger Zone</string>
+    <string name="reset_ai_learning">Reset AI Learning</string>
+    <string name="erase_all_data">Erase All Images &amp; Data</string>
+    <string name="file_provider_authority">com.yourname.colornest.fileprovider</string>
+</resources>
