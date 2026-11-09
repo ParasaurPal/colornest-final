@@ -322,7 +322,7 @@ private fun openImageExternally(context: Context, filePath: String) {
             file
         )
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "image/jpeg"
+            type = "image/*"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
