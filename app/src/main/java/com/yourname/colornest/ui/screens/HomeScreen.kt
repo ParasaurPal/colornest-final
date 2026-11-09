@@ -279,7 +279,7 @@ fun HomeScreen(
         isProcessing = uiState.isProcessingAdd,
         progressText = uiState.addProgressText,
         progressPercent = uiState.addProgressPercent,
-        onFilesSelected = { uris -> viewModel.importFiles(uris) },
+        onFilesSelected = { uris, removeWhite -> viewModel.importFiles(uris, removeWhite) },
         onClose = { viewModel.setAddModalOpen(false) }
     )
 
