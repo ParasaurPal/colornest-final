@@ -9,4 +9,5 @@
     <color name="surface_light">#FFFFFF</color>
     <color name="surface_dark">#1E1E1E</color>
     <color name="ic_launcher_bg">#7C3AED</color>
+    <color name="ic_launcher_background">#7C3AED</color>
 </resources>
