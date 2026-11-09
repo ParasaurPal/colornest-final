@@ -114,6 +114,21 @@ class ColorNestRepository(private val context: Context) {
         }
     }
 
+    // Keep tags about what is depicted, not generic properties of the image.
+    private fun normalizeSubjectTags(values: List<String>): List<String> {
+        val rejected = setOf(
+            "sky", "monochrome", "black and white", "black-and-white", "grayscale", "grey",
+            "gray", "space", "screenshot", "illustration", "drawing", "coloring page",
+            "colouring page", "line art", "image", "picture", "background", "texture",
+            "contrast", "aesthetic", "art", "visual art", "photograph", "photo",
+            "paper", "white", "black", "shadow", "light", "darkness"
+        )
+        return values.map { it.lowercase().trim().replace(Regex("\\s+"), " ") }
+            .filter { it.length in 2..40 && it !in rejected }
+            .distinct()
+            .take(6)
+    }
+
     private suspend fun callGeminiSubjectDetection(
         page: Page,
         categories: List<Category>,
@@ -146,14 +161,34 @@ class ColorNestRepository(private val context: Context) {
             learnedTags[category.id]?.takeIf { it.isNotEmpty() }?.let { category.name + ": " + it.joinToString(", ") }
         }.joinToString("; ")
         val prompt = """
-            Identify the main visible subject(s) in this coloring-page image.
-            Return ONLY valid JSON with this exact shape:
-            {"tags":["short lowercase subject tags"],"category":"one exact category name from the list or null"}
-            Available categories: $categoryNames
+            You are labeling a collection of BLACK-AND-WHITE COLORING PAGE DRAWINGS.
+            Your task is SUBJECT RECOGNITION, not image-style or scene description.
+            Identify the actual object, creature, person, plant, character, building, or other thing
+            the artist drew and that a person would color. Inspect the line art itself.
+            Ignore the white paper, transparent areas, page border, lighting, image quality,
+            camera/screenshot artifacts, and all artistic or visual properties.
+            NEVER use generic appearance, medium, color, or background labels such as:
+            sky, monochrome, black and white, grayscale, space, screenshot, illustration,
+            drawing, coloring page, line art, image, background, texture, contrast, aesthetic.
+            Do not label empty regions or scenery unless that scenery is clearly the main
+            depicted subject (for example, a specific mountain landscape).
+            Tags must be concrete subject nouns, from most specific to broader useful taxonomy.
+            Good examples:
+            - a fox drawing -> ["fox", "animal", "mammal", "canine"]
+            - roses -> ["rose", "flower", "plant", "botanical"]
+            - a dragon -> ["dragon", "mythical creature", "fantasy"]
+            - a human portrait -> ["person", "portrait", "human"]
+            - a castle -> ["castle", "building", "architecture"]
+            Bad examples for ANY coloring page: ["sky", "monochrome", "space", "screenshot"].
+            If you cannot confidently identify a concrete subject, return an empty tags array.
+            Return ONLY valid JSON in this exact shape:
+            {"subject":"one concise concrete subject noun phrase or empty string","tags":["lowercase subject nouns"],"category":"one exact category name from the list or null"}
+            Available categories (choose the closest specific category): $categoryNames
             User-confirmed category examples and terms: $learningHints
-            Respect those user-confirmed examples when the image matches them.
-            Choose the most specific matching category. If none fits, use null.
-            Do not invent a title. Do not describe the paper/background. Return up to 8 useful tags.
+            Respect user-confirmed examples only when the visible subject actually matches.
+            Choose the most specific matching category. Never choose a category based only on
+            background, color, art style, or image format. If no category fits, use null.
+            Return at most 6 subject tags. No explanations or markdown.
         """.trimIndent()
         val parts = JSONArray()
             .put(JSONObject().put("text", prompt))
@@ -187,10 +222,14 @@ class ColorNestRepository(private val context: Context) {
                 .trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             val result = JSONObject(responseText)
             val tags = result.optJSONArray("tags") ?: JSONArray()
-            val labels = (0 until tags.length()).mapNotNull { index ->
-                tags.optString(index).takeIf { it.isNotBlank() }?.lowercase()?.trim()
-            }.distinct().take(8)
-            val category = result.optString("category").takeIf { it.isNotBlank() && !it.equals("null", true) }
+            val rawLabels = buildList {
+                result.optString("subject").takeIf { it.isNotBlank() }?.let { add(it) }
+                for (index in 0 until tags.length()) add(tags.optString(index))
+            }
+            val labels = normalizeSubjectTags(rawLabels)
+            val category = result.optString("category").takeIf {
+                it.isNotBlank() && !it.equals("null", true) && categories.any { item -> item.name.equals(it, true) }
+            }
             return labels to category
         } finally {
             connection.disconnect()
@@ -505,12 +544,13 @@ class ColorNestRepository(private val context: Context) {
             val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
             try {
                 val image = InputImage.fromFilePath(context, Uri.fromFile(file))
-                labels = Tasks.await(labeler.process(image))
-                    .filter { it.confidence >= 0.45f }
-                    .sortedByDescending { it.confidence }
-                    .take(8)
-                    .map { it.text.lowercase() }
-                    .distinct()
+                labels = normalizeSubjectTags(
+                    Tasks.await(labeler.process(image))
+                        .filter { it.confidence >= 0.55f }
+                        .sortedByDescending { it.confidence }
+                        .take(12)
+                        .map { it.text }
+                )
                 suggestedCategory = null
             } finally {
                 labeler.close()
