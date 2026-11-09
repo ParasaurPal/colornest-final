@@ -264,14 +264,14 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun importFiles(uris: List<Uri>) {
+    fun importFiles(uris: List<Uri>, removeWhiteBackground: Boolean = true) {
         viewModelScope.launch {
             _isProcessingAdd.value = true
             _addProgressPercent.value = 0
             val total = uris.size
 
             for ((index, uri) in uris.withIndex()) {
-                repository.importUri(uri) { text, percent ->
+                repository.importUri(uri, removeWhiteBackground) { text, percent ->
                     _addProgressText.value = text
                     val overall = ((index * 100) + percent) / total
                     _addProgressPercent.value = overall
