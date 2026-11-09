@@ -242,6 +242,7 @@ class ColorNestRepository(private val context: Context) {
         categoryDao.deleteAllCategories()
         learnedPatternDao.deleteAllPatterns()
         settingDao.deleteAllSettings()
+        secureAiPreferences().edit().remove("gemini_api_key").apply()
 
         // Re-seed default 5 categories
         val defaults = listOf(
@@ -505,7 +506,8 @@ class ColorNestRepository(private val context: Context) {
             try {
                 runSubjectDetection(page.copy(isProcessingAi = true), categories)
             } catch (e: Exception) {
-                pageDao.updatePage(page.copy(isProcessingAi = false, aiStatus = "AI detection unavailable — ready to tag"))
+                val reason = e.message?.take(90) ?: "Check your AI settings"
+                pageDao.updatePage(page.copy(isProcessingAi = false, aiStatus = "AI error: $reason"))
             }
         }
     }
@@ -522,7 +524,8 @@ class ColorNestRepository(private val context: Context) {
                         try {
                             runSubjectDetection(pendingPage.copy(isProcessingAi = true), categoryDao.getAllCategories())
                         } catch (e: Exception) {
-                            pageDao.updatePage(pendingPage.copy(isProcessingAi = false, aiStatus = "AI detection unavailable — ready to tag"))
+                            val reason = e.message?.take(90) ?: "Check your AI settings"
+                            pageDao.updatePage(pendingPage.copy(isProcessingAi = false, aiStatus = "AI error: $reason"))
                         }
                     }
                 } catch (e: Exception) {
