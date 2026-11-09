@@ -219,6 +219,7 @@ class ColorNestRepository(private val context: Context) {
 
     suspend fun resetAiBrain() = withContext(Dispatchers.IO) {
         LocalBrain.resetAIBrain(learnedPatternDao)
+        settingDao.setSetting(Setting(key = "aiLearnedTags", value = "{}"))
     }
 
     suspend fun wipeAllData() = withContext(Dispatchers.IO) {
