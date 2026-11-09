@@ -6,6 +6,10 @@ import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeling
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.yourname.colornest.data.ColorNestDatabase
@@ -263,36 +267,116 @@ class ColorNestRepository(private val context: Context) {
         return name
     }
 
-    // Background worker: only apply a confident user-trained image match.
-    // Never generate titles or guess a category from a filename/default folder.
+    private fun categorySynonyms(name: String): Set<String> {
+        val n = name.lowercase()
+        return when {
+            n.contains("animal") -> setOf("animal", "dog", "cat", "bird", "fish", "horse", "wildlife", "mammal", "reptile", "insect", "butterfly")
+            n.contains("mammal") -> setOf("mammal", "dog", "cat", "horse", "bear", "fox", "wolf", "deer", "rabbit", "elephant")
+            n.contains("canine") || n.contains("dog") -> setOf("dog", "wolf", "fox", "coyote")
+            n.contains("feline") || n.contains("cat") -> setOf("cat", "lion", "tiger", "leopard")
+            n.contains("bird") || n.contains("avian") -> setOf("bird", "eagle", "owl", "parrot", "duck")
+            n.contains("plant") || n.contains("botanical") || n.contains("nature") -> setOf("plant", "flower", "tree", "leaf", "botanical", "garden")
+            n.contains("flower") -> setOf("flower", "blossom", "rose", "tulip")
+            n.contains("tree") -> setOf("tree", "forest", "wood")
+            n.contains("insect") -> setOf("insect", "butterfly", "bee", "dragonfly", "beetle")
+            n.contains("fantasy") || n.contains("myth") -> setOf("dragon", "unicorn", "fairy", "fantasy", "mythical")
+            n.contains("mandala") || n.contains("pattern") -> setOf("pattern", "mandala", "geometric", "symmetry")
+            n.contains("architecture") || n.contains("building") -> setOf("building", "architecture", "house", "castle", "bridge")
+            else -> setOf(n)
+        }
+    }
+
+    private fun findBestCategory(labels: List<String>, categories: List<Category>): Category? {
+        fun depth(category: Category): Int {
+            var level = 0
+            var parent = category.parentId
+            while (parent != null && level < 20) {
+                parent = categories.firstOrNull { it.id == parent }?.parentId
+                level++
+            }
+            return level
+        }
+        val normalized = labels.map { it.lowercase().trim() }
+        return categories.filter { category ->
+            val name = category.name.lowercase().trim()
+            val synonyms = categorySynonyms(name)
+            normalized.any { label ->
+                label == name || label.contains(name) || name.contains(label) ||
+                    synonyms.any { synonym -> label == synonym || label.contains(synonym) }
+            }
+        }.maxByOrNull { depth(it) }
+    }
+
+    private suspend fun runSubjectDetection(page: Page, categories: List<Category>) {
+        val file = File(page.imageUrl)
+        if (!file.exists()) {
+            pageDao.updatePage(page.copy(isProcessingAi = false, aiStatus = "Image unavailable"))
+            return
+        }
+        val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
+        try {
+            val image = InputImage.fromFilePath(context, Uri.fromFile(file))
+            val labels = Tasks.await(labeler.process(image))
+                .filter { it.confidence >= 0.45f }
+                .sortedByDescending { it.confidence }
+                .take(8)
+                .map { it.text.lowercase() }
+                .distinct()
+            val category = findBestCategory(labels, categories)
+            if (category != null) {
+                pageDao.updatePage(page.copy(
+                    categoryId = category.id,
+                    isUncategorized = false,
+                    aiSuggestedCategoryId = category.id,
+                    tags = (page.tags + labels).distinct(),
+                    isProcessingAi = false,
+                    aiStatus = null
+                ))
+                LocalBrain.learnPattern(page.imageUrl, category.id, learnedPatternDao)
+            } else {
+                pageDao.updatePage(page.copy(
+                    tags = (page.tags + labels).distinct(),
+                    isUncategorized = true,
+                    isProcessingAi = false,
+                    aiStatus = if (labels.isEmpty()) "No subject found — ready to tag" else "AI labels found — choose a category"
+                ))
+            }
+        } finally {
+            labeler.close()
+        }
+    }
+
+    // Run on-device subject labeling for selected pages, or every page when ids is null.
+    suspend fun detectSubjects(ids: List<Long>? = null) = withContext(Dispatchers.IO) {
+        val categories = categoryDao.getAllCategories()
+        val targets = if (ids == null) pageDao.getUncategorizedPages() else pageDao.getPagesByIds(ids).filter { it.isUncategorized }
+        targets.forEach { page ->
+            pageDao.updatePage(page.copy(isProcessingAi = true, aiStatus = "Detecting subjects..."))
+            try {
+                runSubjectDetection(page.copy(isProcessingAi = true), categories)
+            } catch (e: Exception) {
+                pageDao.updatePage(page.copy(isProcessingAi = false, aiStatus = "AI detection unavailable — ready to tag"))
+            }
+        }
+    }
+
+    // New imports are queued and stay in the Untagged section until a confident category is found.
     fun startBackgroundWorker(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
                     val aiEnabled = settingDao.getSetting("aiCategorizationEnabled")?.toBooleanStrictOrNull() ?: true
-                    val pendingPage = pageDao.getNextPendingAiPage()
+                    val pendingPage = if (aiEnabled) pageDao.getNextPendingAiPage() else null
                     if (pendingPage != null) {
-                        pageDao.updatePage(pendingPage.copy(isProcessingAi = true, aiStatus = "Checking learned matches..."))
-                        val localGuess = if (aiEnabled) LocalBrain.guessCategoryLocally(pendingPage.imageUrl, learnedPatternDao) else null
-                        if (localGuess != null) {
-                            val categoryId = localGuess.first
-                            pageDao.updatePage(pendingPage.copy(
-                                categoryId = categoryId,
-                                isUncategorized = false,
-                                aiSuggestedCategoryId = categoryId,
-                                isProcessingAi = false,
-                                aiStatus = null
-                            ))
-                            LocalBrain.learnPattern(pendingPage.imageUrl, categoryId, learnedPatternDao)
-                        } else {
-                            pageDao.updatePage(pendingPage.copy(
-                                isProcessingAi = false,
-                                aiStatus = "Ready to categorize"
-                            ))
+                        pageDao.updatePage(pendingPage.copy(isProcessingAi = true, aiStatus = "Detecting subjects..."))
+                        try {
+                            runSubjectDetection(pendingPage.copy(isProcessingAi = true), categoryDao.getAllCategories())
+                        } catch (e: Exception) {
+                            pageDao.updatePage(pendingPage.copy(isProcessingAi = false, aiStatus = "AI detection unavailable — ready to tag"))
                         }
                     }
                 } catch (e: Exception) {
-                    // Keep the worker alive; the page remains available for manual sorting.
+                    // Keep the worker alive; failed pages remain available for manual tagging.
                 }
                 delay(5000)
             }
