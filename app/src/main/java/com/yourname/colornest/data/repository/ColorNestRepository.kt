@@ -169,11 +169,13 @@ class ColorNestRepository(private val context: Context) {
             the artist drew and that a person would color. Inspect the line art itself.
             Ignore the white paper, transparent areas, page border, lighting, image quality,
             camera/screenshot artifacts, and all artistic or visual properties.
-            NEVER use generic appearance, medium, color, or background labels such as:
-            sky, monochrome, black and white, grayscale, space, screenshot, illustration,
-            drawing, coloring page, line art, image, background, texture, contrast, aesthetic.
-            Do not label empty regions or scenery unless that scenery is clearly the main
-            depicted subject (for example, a specific mountain landscape).
+            Avoid labels that describe only the file format or rendering, such as screenshot,
+            illustration, drawing, coloring page, line art, or image.
+            Broad contextual tags ARE allowed when they genuinely describe the depicted content:
+            sky for a sky scene, space for planets/stars/outer space, nature for a nature scene,
+            monochrome for a deliberately monochrome subject/style, and other useful broad
+            subject or scene terms. Do not add them automatically; include them only when relevant.
+            Do not label empty regions or incidental scenery as the subject.
             Tags must be concrete subject nouns, from most specific to broader useful taxonomy.
             Good examples:
             - a fox drawing -> ["fox", "animal", "mammal", "canine"]
