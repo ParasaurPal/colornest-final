@@ -165,6 +165,7 @@ class ColorNestRepository(private val context: Context) {
 
     suspend fun importUri(
         uri: Uri,
+        removeWhiteBackground: Boolean = true,
         onProgress: (text: String, percent: Int) -> Unit
     ) = withContext(Dispatchers.IO) {
         val mimeType = context.contentResolver.getType(uri) ?: ""
@@ -172,7 +173,7 @@ class ColorNestRepository(private val context: Context) {
 
         if (mimeType.contains("pdf", ignoreCase = true) || fileName.endsWith(".pdf", ignoreCase = true)) {
             onProgress("Reading PDF...", 10)
-            convertPdfToPages(uri, fileName, onProgress)
+            convertPdfToPages(uri, fileName, removeWhiteBackground, onProgress)
         } else {
             onProgress("Compressing Image...", 40)
             var inputStream: InputStream? = null
@@ -181,7 +182,7 @@ class ColorNestRepository(private val context: Context) {
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 if (bitmap != null) {
                     onProgress("Saving Image...", 80)
-                    val savedPath = saveTransparentLineArt(bitmap, "img")
+                    val savedPath = if (removeWhiteBackground) saveTransparentLineArt(bitmap, "img") else saveScaledBitmap(bitmap, "img")
                     bitmap.recycle()
 
                     pageDao.insertPage(
@@ -202,6 +203,7 @@ class ColorNestRepository(private val context: Context) {
     private fun convertPdfToPages(
         uri: Uri,
         pdfName: String,
+        removeWhiteBackground: Boolean,
         onProgress: (text: String, percent: Int) -> Unit
     ) {
         val tempPdfFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}.pdf")
@@ -226,7 +228,7 @@ class ColorNestRepository(private val context: Context) {
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
 
-                val savedPath = saveTransparentLineArt(bitmap, "pdf_page")
+                val savedPath = if (removeWhiteBackground) saveTransparentLineArt(bitmap, "pdf_page") else saveScaledBitmap(bitmap, "pdf_page")
                 bitmap.recycle()
 
                 val pageEntity = Page(
