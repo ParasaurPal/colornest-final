@@ -185,6 +185,35 @@ class ColorNestRepository(private val context: Context) {
 
         if (newCategoryId != null) {
             LocalBrain.learnPattern(page.imageUrl, newCategoryId, learnedPatternDao)
+            learnUserTags(newCategoryId, tags)
+        }
+    }
+
+    private suspend fun learnUserTags(categoryId: Long, tags: List<String>) {
+        if (tags.isEmpty()) return
+        val key = "aiLearnedTags"
+        val learned = runCatching { JSONObject(settingDao.getSetting(key) ?: "{}") }.getOrElse { JSONObject() }
+        val categoryKey = categoryId.toString()
+        val current = learned.optJSONArray(categoryKey) ?: JSONArray()
+        val merged = (0 until current.length()).map { current.optString(it) }
+            .toMutableSet()
+        tags.map { it.trim().lowercase() }
+            .filter { it.length >= 2 && it.length <= 40 }
+            .forEach { merged.add(it) }
+        learned.put(categoryKey, JSONArray(merged.take(100)))
+        settingDao.setSetting(Setting(key = key, value = learned.toString()))
+    }
+
+    private suspend fun getLearnedTagMap(): Map<Long, Set<String>> {
+        val learned = runCatching { JSONObject(settingDao.getSetting("aiLearnedTags") ?: "{}") }.getOrElse { JSONObject() }
+        return buildMap {
+            val keys = learned.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val categoryId = key.toLongOrNull() ?: continue
+                val values = learned.optJSONArray(key) ?: continue
+                put(categoryId, (0 until values.length()).map { values.optString(it).lowercase() }.toSet())
+            }
         }
     }
 
@@ -377,7 +406,8 @@ class ColorNestRepository(private val context: Context) {
         }
     }
 
-    private fun findBestCategory(labels: List<String>, categories: List<Category>): Category? {
+    private suspend fun findBestCategory(labels: List<String>, categories: List<Category>): Category? {
+        val learnedTags = getLearnedTagMap()
         fun depth(category: Category): Int {
             var level = 0
             var parent = category.parentId
