@@ -446,9 +446,6 @@ class ColorNestRepository(private val context: Context) {
                     aiStatus = if (labels.isEmpty()) "No subject found — ready to tag" else "AI labels found — choose a category"
                 ))
             }
-        } finally {
-            labeler.close()
-        }
     }
 
     // Run on-device subject labeling for selected pages, or every page when ids is null.
