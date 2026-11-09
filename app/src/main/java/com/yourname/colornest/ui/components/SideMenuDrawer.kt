@@ -138,6 +138,29 @@ fun SideMenuDrawer(
                     .weight(1f)
                     .padding(8.dp)
             ) {
+                // Central inbox for imports that have not been tagged yet.
+                item {
+                    val isUntaggedActive = activeCategoryId == -1L
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isUntaggedActive) PurplePrimary.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable { onSelectCategory(-1L) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("untagged_menu_item")
+                    ) {
+                        Text(
+                            text = "Untagged",
+                            fontWeight = if (isUntaggedActive) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isUntaggedActive) PurplePrimary else MaterialTheme.colorScheme.onSurface,
+                            fontSize = 16.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
                 // All Pages option
                 item {
                     val isAllActive = activeCategoryId == null
