@@ -306,7 +306,7 @@ fun HomeScreen(
             title = { Text("AI Subject Detection") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Use free on-device image recognition to identify subjects and match them to your categories.")
+                    Text(if (uiState.geminiEnabled) "Gemini AI will analyze images and suggest subject tags and matching categories." else "Free on-device image recognition will identify subjects and match them to your categories.")
                     Button(
                         onClick = {
                             showAiDialog = false
