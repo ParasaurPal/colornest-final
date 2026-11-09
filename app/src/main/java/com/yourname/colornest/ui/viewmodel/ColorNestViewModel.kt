@@ -31,6 +31,7 @@ data class UiState(
     val addProgressPercent: Int = 0,
     val isSeeding: Boolean = false,
     val aiCategorizationEnabled: Boolean = true,
+    val isDetectingSubjects: Boolean = false,
     val wipeStep: Int = 0,
     val deleteCloud: Boolean = false,
     val confirmDeleteText: String = ""
@@ -52,6 +53,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     private val _addProgressPercent = MutableStateFlow(0)
     private val _isSeeding = MutableStateFlow(false)
     private val _aiCategorizationEnabled = MutableStateFlow(true)
+    private val _isDetectingSubjects = MutableStateFlow(false)
     private val _wipeStep = MutableStateFlow(0)
     private val _deleteCloud = MutableStateFlow(false)
     private val _confirmDeleteText = MutableStateFlow("")
@@ -95,6 +97,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _addProgressPercent,
         _isSeeding,
         _aiCategorizationEnabled,
+        _isDetectingSubjects,
         _wipeStep,
         _deleteCloud,
         _confirmDeleteText
@@ -116,9 +119,10 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         val progPct = args[12] as Int
         val seeding = args[13] as Boolean
         val aiEnabled = args[14] as Boolean
-        val wipeSt = args[15] as Int
-        val delCloud = args[16] as Boolean
-        val confText = args[17] as String
+        val detectingSubjects = args[15] as Boolean
+        val wipeSt = args[16] as Int
+        val delCloud = args[17] as Boolean
+        val confText = args[18] as String
 
         val filtered = filterPages(pages, categories, activeCatId, query)
 
@@ -139,6 +143,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             addProgressPercent = progPct,
             isSeeding = seeding,
             aiCategorizationEnabled = aiEnabled,
+            isDetectingSubjects = detectingSubjects,
             wipeStep = wipeSt,
             deleteCloud = delCloud,
             confirmDeleteText = confText
@@ -165,7 +170,9 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         query: String
     ): List<Page> {
         return pages.filter { page ->
-            if (activeCatId != null) {
+            if (activeCatId == -1L) {
+                if (!page.isUncategorized) return@filter false
+            } else if (activeCatId != null) {
                 val validIds = getCategoryAndChildren(activeCatId, categories)
                 if (page.categoryId !in validIds) return@filter false
             }
@@ -231,6 +238,18 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _aiCategorizationEnabled.value = newVal
         viewModelScope.launch {
             repository.setSetting("aiCategorizationEnabled", newVal.toString())
+        }
+    }
+
+    fun detectSubjects(pageIds: List<Long>? = null) {
+        if (_isDetectingSubjects.value) return
+        viewModelScope.launch {
+            _isDetectingSubjects.value = true
+            try {
+                repository.detectSubjects(pageIds)
+            } finally {
+                _isDetectingSubjects.value = false
+            }
         }
     }
 
