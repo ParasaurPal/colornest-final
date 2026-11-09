@@ -269,10 +269,11 @@ class ColorNestRepository(private val context: Context) {
         scope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
+                    val aiEnabled = settingDao.getSetting("aiCategorizationEnabled")?.toBooleanStrictOrNull() ?: true
                     val pendingPage = pageDao.getNextPendingAiPage()
                     if (pendingPage != null) {
                         pageDao.updatePage(pendingPage.copy(isProcessingAi = true, aiStatus = "Checking learned matches..."))
-                        val localGuess = LocalBrain.guessCategoryLocally(pendingPage.imageUrl, learnedPatternDao)
+                        val localGuess = if (aiEnabled) LocalBrain.guessCategoryLocally(pendingPage.imageUrl, learnedPatternDao) else null
                         if (localGuess != null) {
                             val categoryId = localGuess.first
                             pageDao.updatePage(pendingPage.copy(
