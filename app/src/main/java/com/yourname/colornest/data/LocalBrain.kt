@@ -68,7 +68,7 @@ object LocalBrain {
         val existingPatterns = dao.getAllPatterns()
         val closest = existingPatterns
             .map { pattern -> pattern to compareFingerprints(pattern.fingerprint, fingerprint) }
-            .filter { it.second > 0.85f }
+            .filter { it.second > 0.95f }
             .maxByOrNull { it.second }
 
         if (closest != null) {
