@@ -14,6 +14,9 @@ interface LearnedPatternDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPattern(pattern: LearnedPattern): Long
 
+    @Query("UPDATE learned_patterns SET categoryId = :categoryId WHERE id = :patternId")
+    suspend fun correctPatternCategory(patternId: Long, categoryId: Long)
+
     @Query("DELETE FROM learned_patterns")
     suspend fun deleteAllPatterns()
 }
