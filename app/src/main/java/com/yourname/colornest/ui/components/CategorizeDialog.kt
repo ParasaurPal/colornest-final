@@ -203,7 +203,7 @@ fun CategorizeDialog(
                                 .split(",")
                                 .map { it.trim() }
                                 .filter { it.isNotEmpty() }
-                            onSave(page.id, title.trim().ifBlank { "Untitled" }, selectedCategoryId, tagList)
+                            onSave(page.id, title.trim(), selectedCategoryId, tagList)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
                         shape = RoundedCornerShape(12.dp),
