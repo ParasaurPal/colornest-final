@@ -24,6 +24,11 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -49,16 +54,18 @@ fun AddPageDialog(
     isProcessing: Boolean,
     progressText: String,
     progressPercent: Int,
-    onFilesSelected: (List<Uri>) -> Unit,
+    onFilesSelected: (List<Uri>, Boolean) -> Unit,
     onClose: () -> Unit
 ) {
     if (!isOpen) return
+
+    var removeWhiteBackground by remember { mutableStateOf(true) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            onFilesSelected(uris)
+            onFilesSelected(uris, removeWhiteBackground)
         }
     }
 
@@ -190,6 +197,21 @@ fun AddPageDialog(
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
+
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = removeWhiteBackground,
+                            onCheckedChange = { removeWhiteBackground = it }
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Remove white paper", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Make white and near-white areas transparent; preserve clean linework", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
