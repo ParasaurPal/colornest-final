@@ -61,13 +61,14 @@ fun SettingsDialog(
     aiEnabled: Boolean,
     geminiEnabled: Boolean,
     geminiApiKey: String,
+    geminiConnectionStatus: String,
     isSeeding: Boolean,
     wipeStep: Int,
     deleteCloud: Boolean,
     confirmDeleteText: String,
     onToggleAi: () -> Unit,
     onGeminiApiKeyChange: (String) -> Unit,
-    onSaveGeminiApiKey: () -> Unit,
+    onConnectGemini: () -> Unit,
     onToggleGemini: () -> Unit,
     onSeedCategories: () -> Unit,
     onResetAiLearning: () -> Unit,
@@ -172,7 +173,7 @@ fun SettingsDialog(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Get your API key", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        "1. Open Google AI Studio: aistudio.google.com/app/apikey\n2. Sign in with your Google account.\n3. Select Create API key (or copy an existing key).\n4. Paste it below and tap Save API key.\n5. Turn on Gemini AI Subject Detection.",
+                        "1. Open Google AI Studio: aistudio.google.com/app/apikey\n2. Sign in with your Google account.\n3. Select Create API key (or copy an existing key).\n4. Paste it below and tap Test connection & connect.\n5. A successful test automatically enables Gemini for subject detection.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -189,11 +190,19 @@ fun SettingsDialog(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
-                        onClick = onSaveGeminiApiKey,
-                        enabled = geminiApiKey.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().testTag("save_gemini_api_key_button"),
+                        onClick = onConnectGemini,
+                        enabled = geminiApiKey.isNotBlank() && !geminiConnectionStatus.startsWith("Testing"),
+                        modifier = Modifier.fillMaxWidth().testTag("connect_gemini_button"),
                         colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary)
-                    ) { Text("Save API key") }
+                    ) { Text(if (geminiConnectionStatus.startsWith("Testing")) "Testing connection..." else "Test connection & connect") }
+                    if (geminiConnectionStatus.isNotBlank()) {
+                        Text(
+                            geminiConnectionStatus,
+                            fontSize = 12.sp,
+                            color = if (geminiConnectionStatus.startsWith("Connected")) AccentGreen else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("gemini_connection_status")
+                        )
+                    }
                     Text(
                         "Your key is stored encrypted on this device, not built into the APK. Gemini sends selected images to Google for analysis. On the free tier, Google may use submitted content to improve its products. Check current limits, pricing, and data-use terms before enabling it. Never share your key.",
                         fontSize = 11.sp,
