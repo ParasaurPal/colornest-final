@@ -3,6 +3,7 @@ package com.yourname.colornest.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
@@ -78,7 +79,7 @@ class ColorNestRepository(private val context: Context) {
         secureAiPreferences().edit().putString("gemini_api_key", key.trim()).apply()
     }
 
-    private fun callGeminiSubjectDetection(
+    private suspend fun callGeminiSubjectDetection(
         page: Page,
         categories: List<Category>,
         apiKey: String
@@ -98,11 +99,17 @@ class ColorNestRepository(private val context: Context) {
         source.recycle()
 
         val categoryNames = categories.joinToString(", ") { it.name }
+        val learnedTags = getLearnedTagMap()
+        val learningHints = categories.mapNotNull { category ->
+            learnedTags[category.id]?.takeIf { it.isNotEmpty() }?.let { category.name + ": " + it.joinToString(", ") }
+        }.joinToString("; ")
         val prompt = """
             Identify the main visible subject(s) in this coloring-page image.
             Return ONLY valid JSON with this exact shape:
             {"tags":["short lowercase subject tags"],"category":"one exact category name from the list or null"}
             Available categories: $categoryNames
+            User-confirmed category examples and terms: $learningHints
+            Respect those user-confirmed examples when the image matches them.
             Choose the most specific matching category. If none fits, use null.
             Do not invent a title. Do not describe the paper/background. Return up to 8 useful tags.
         """.trimIndent()
