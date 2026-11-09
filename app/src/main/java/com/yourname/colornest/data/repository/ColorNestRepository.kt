@@ -86,17 +86,24 @@ class ColorNestRepository(private val context: Context) {
     ): Pair<List<String>, String?> {
         val source = BitmapFactory.decodeFile(page.imageUrl)
             ?: throw IllegalStateException("Could not open this image")
-        val maxSide = max(source.width, source.height)
+        // Flatten transparent line-art onto white so the model sees clean black lines.
+        val flattened = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        Canvas(flattened).apply {
+            drawColor(AndroidColor.WHITE)
+            drawBitmap(source, 0f, 0f, null)
+        }
+        source.recycle()
+        val maxSide = max(flattened.width, flattened.height)
         val scaled = if (maxSide > 1024) {
             val ratio = 1024f / maxSide
-            Bitmap.createScaledBitmap(source, (source.width * ratio).toInt().coerceAtLeast(1), (source.height * ratio).toInt().coerceAtLeast(1), true)
-        } else source
+            Bitmap.createScaledBitmap(flattened, (flattened.width * ratio).toInt().coerceAtLeast(1), (flattened.height * ratio).toInt().coerceAtLeast(1), true)
+        } else flattened
         val bytes = java.io.ByteArrayOutputStream().use { output ->
             scaled.compress(Bitmap.CompressFormat.JPEG, 82, output)
             output.toByteArray()
         }
-        if (scaled !== source) scaled.recycle()
-        source.recycle()
+        if (scaled !== flattened) scaled.recycle()
+        flattened.recycle()
 
         val categoryNames = categories.joinToString(", ") { it.name }
         val learnedTags = getLearnedTagMap()
