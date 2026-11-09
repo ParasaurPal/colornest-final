@@ -34,6 +34,7 @@ data class UiState(
     val isDetectingSubjects: Boolean = false,
     val geminiEnabled: Boolean = false,
     val geminiApiKey: String = "",
+    val geminiConnectionStatus: String = "",
     val wipeStep: Int = 0,
     val deleteCloud: Boolean = false,
     val confirmDeleteText: String = ""
@@ -58,6 +59,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isDetectingSubjects = MutableStateFlow(false)
     private val _geminiEnabled = MutableStateFlow(false)
     private val _geminiApiKey = MutableStateFlow("")
+    private val _geminiConnectionStatus = MutableStateFlow("")
     private val _wipeStep = MutableStateFlow(0)
     private val _deleteCloud = MutableStateFlow(false)
     private val _confirmDeleteText = MutableStateFlow("")
@@ -106,6 +108,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _isDetectingSubjects,
         _geminiEnabled,
         _geminiApiKey,
+        _geminiConnectionStatus,
         _wipeStep,
         _deleteCloud,
         _confirmDeleteText
@@ -130,9 +133,10 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         val detectingSubjects = args[15] as Boolean
         val geminiOn = args[16] as Boolean
         val geminiKey = args[17] as String
-        val wipeSt = args[18] as Int
-        val delCloud = args[19] as Boolean
-        val confText = args[20] as String
+        val geminiStatus = args[18] as String
+        val wipeSt = args[19] as Int
+        val delCloud = args[20] as Boolean
+        val confText = args[21] as String
 
         val filtered = filterPages(pages, categories, activeCatId, query)
 
@@ -156,6 +160,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             isDetectingSubjects = detectingSubjects,
             geminiEnabled = geminiOn,
             geminiApiKey = geminiKey,
+            geminiConnectionStatus = geminiStatus,
             wipeStep = wipeSt,
             deleteCloud = delCloud,
             confirmDeleteText = confText
@@ -267,14 +272,25 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setGeminiApiKeyDraft(value: String) {
         _geminiApiKey.value = value
+        _geminiConnectionStatus.value = ""
     }
 
-    fun saveGeminiApiKey() {
+    fun testAndConnectGemini() {
+        val key = _geminiApiKey.value.trim()
+        if (key.isBlank()) {
+            _geminiConnectionStatus.value = "Paste your Gemini API key first."
+            return
+        }
         viewModelScope.launch {
-            repository.saveGeminiApiKey(_geminiApiKey.value)
-            if (_geminiApiKey.value.isBlank()) {
-                _geminiEnabled.value = false
-                repository.setSetting("geminiEnabled", "false")
+            _geminiConnectionStatus.value = "Testing Gemini connection..."
+            try {
+                val result = repository.testGeminiConnection(key)
+                repository.saveGeminiApiKey(key)
+                repository.setSetting("geminiEnabled", "true")
+                _geminiEnabled.value = true
+                _geminiConnectionStatus.value = result + " Gemini is now selected for subject detection."
+            } catch (error: Exception) {
+                _geminiConnectionStatus.value = error.message ?: "Could not connect to Gemini. Check your internet connection and API key."
             }
         }
     }
