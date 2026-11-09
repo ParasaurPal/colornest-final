@@ -306,7 +306,7 @@ fun HomeScreen(
             title = { Text("AI Subject Detection") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(if (uiState.geminiEnabled) "Gemini AI will analyze images and suggest subject tags and matching categories." else "Free on-device image recognition will identify subjects and match them to your categories.")
+                    Text(if (uiState.geminiEnabled) "Connected Gemini AI will analyze each image and choose from your categories. If the connection fails, the page will show the exact API error instead of silently switching providers." else "Gemini is not connected. Open Settings to test and connect your API key. Until then, detection uses free on-device recognition.")
                     Button(
                         onClick = {
                             showAiDialog = false
@@ -406,13 +406,14 @@ fun HomeScreen(
         aiEnabled = uiState.aiCategorizationEnabled,
         geminiEnabled = uiState.geminiEnabled,
         geminiApiKey = uiState.geminiApiKey,
+        geminiConnectionStatus = uiState.geminiConnectionStatus,
         isSeeding = uiState.isSeeding,
         wipeStep = uiState.wipeStep,
         deleteCloud = uiState.deleteCloud,
         confirmDeleteText = uiState.confirmDeleteText,
         onToggleAi = { viewModel.toggleAiEnabled() },
         onGeminiApiKeyChange = { viewModel.setGeminiApiKeyDraft(it) },
-        onSaveGeminiApiKey = { viewModel.saveGeminiApiKey() },
+        onConnectGemini = { viewModel.testAndConnectGemini() },
         onToggleGemini = { viewModel.toggleGeminiEnabled() },
         onSeedCategories = { viewModel.seedMassiveCategories() },
         onResetAiLearning = { viewModel.resetAiLearning() },
