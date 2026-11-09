@@ -73,7 +73,7 @@ fun AddPageDialog(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            onFilesSelected(uris)
+            onFilesSelected(uris, removeWhiteBackground)
         }
     }
 
