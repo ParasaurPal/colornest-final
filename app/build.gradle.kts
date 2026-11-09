@@ -69,6 +69,7 @@ dependencies {
 
     // Free on-device image labeling for automatic subject detection.
     implementation("com.google.mlkit:image-labeling:17.0.9")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
