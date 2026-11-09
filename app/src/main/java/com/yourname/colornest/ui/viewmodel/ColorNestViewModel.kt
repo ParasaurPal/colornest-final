@@ -32,6 +32,8 @@ data class UiState(
     val isSeeding: Boolean = false,
     val aiCategorizationEnabled: Boolean = true,
     val isDetectingSubjects: Boolean = false,
+    val geminiEnabled: Boolean = false,
+    val geminiApiKey: String = "",
     val wipeStep: Int = 0,
     val deleteCloud: Boolean = false,
     val confirmDeleteText: String = ""
@@ -54,6 +56,8 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isSeeding = MutableStateFlow(false)
     private val _aiCategorizationEnabled = MutableStateFlow(true)
     private val _isDetectingSubjects = MutableStateFlow(false)
+    private val _geminiEnabled = MutableStateFlow(false)
+    private val _geminiApiKey = MutableStateFlow("")
     private val _wipeStep = MutableStateFlow(0)
     private val _deleteCloud = MutableStateFlow(false)
     private val _confirmDeleteText = MutableStateFlow("")
@@ -78,6 +82,8 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             if (aiSetting != null) {
                 _aiCategorizationEnabled.value = aiSetting.toBooleanStrictOrNull() ?: true
             }
+            _geminiEnabled.value = repository.getSetting("geminiEnabled") == "true"
+            _geminiApiKey.value = repository.getGeminiApiKey()
         }
     }
 
@@ -98,6 +104,8 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _isSeeding,
         _aiCategorizationEnabled,
         _isDetectingSubjects,
+        _geminiEnabled,
+        _geminiApiKey,
         _wipeStep,
         _deleteCloud,
         _confirmDeleteText
@@ -120,9 +128,11 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         val seeding = args[13] as Boolean
         val aiEnabled = args[14] as Boolean
         val detectingSubjects = args[15] as Boolean
-        val wipeSt = args[16] as Int
-        val delCloud = args[17] as Boolean
-        val confText = args[18] as String
+        val geminiOn = args[16] as Boolean
+        val geminiKey = args[17] as String
+        val wipeSt = args[18] as Int
+        val delCloud = args[19] as Boolean
+        val confText = args[20] as String
 
         val filtered = filterPages(pages, categories, activeCatId, query)
 
@@ -144,6 +154,8 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             isSeeding = seeding,
             aiCategorizationEnabled = aiEnabled,
             isDetectingSubjects = detectingSubjects,
+            geminiEnabled = geminiOn,
+            geminiApiKey = geminiKey,
             wipeStep = wipeSt,
             deleteCloud = delCloud,
             confirmDeleteText = confText
@@ -250,6 +262,29 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             } finally {
                 _isDetectingSubjects.value = false
             }
+        }
+    }
+
+    fun setGeminiApiKeyDraft(value: String) {
+        _geminiApiKey.value = value
+    }
+
+    fun saveGeminiApiKey() {
+        viewModelScope.launch {
+            repository.saveGeminiApiKey(_geminiApiKey.value)
+            if (_geminiApiKey.value.isBlank()) {
+                _geminiEnabled.value = false
+                repository.setSetting("geminiEnabled", "false")
+            }
+        }
+    }
+
+    fun toggleGeminiEnabled() {
+        if (_geminiApiKey.value.isBlank() && !_geminiEnabled.value) return
+        val enabled = !_geminiEnabled.value
+        _geminiEnabled.value = enabled
+        viewModelScope.launch {
+            repository.setSetting("geminiEnabled", enabled.toString())
         }
     }
 
