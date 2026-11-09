@@ -116,12 +116,14 @@ class ColorNestRepository(private val context: Context) {
 
     // Keep tags about what is depicted, not generic properties of the image.
     private fun normalizeSubjectTags(values: List<String>): List<String> {
+        // Filter labels that describe the file or its rendering, not its content.
+        // Keep broad but meaningful subject/context tags such as sky, space, nature,
+        // animal, fantasy, pattern, and monochrome when the model says they fit.
         val rejected = setOf(
-            "sky", "monochrome", "black and white", "black-and-white", "grayscale", "grey",
-            "gray", "space", "screenshot", "illustration", "drawing", "coloring page",
+            "screenshot", "illustration", "drawing", "coloring page",
             "colouring page", "line art", "image", "picture", "background", "texture",
             "contrast", "aesthetic", "art", "visual art", "photograph", "photo",
-            "paper", "white", "black", "shadow", "light", "darkness"
+            "paper", "shadow", "lighting", "file", "document"
         )
         return values.map { it.lowercase().trim().replace(Regex("\\s+"), " ") }
             .filter { it.length in 2..40 && it !in rejected }
