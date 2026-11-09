@@ -37,6 +37,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,6 +86,8 @@ fun SettingsDialog(
     onClose: () -> Unit
 ) {
     if (!isOpen) return
+    val context = LocalContext.current
+    var showGeminiKeyGuide by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onClose) {
         Surface(
@@ -171,12 +180,48 @@ fun SettingsDialog(
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Get your API key", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Get a FREE Gemini API key", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        "1. Open Google AI Studio: aistudio.google.com/app/apikey\n2. Sign in with your Google account.\n3. Select Create API key (or copy an existing key).\n4. Paste it below and tap Test connection & connect.\n5. A successful test automatically enables Gemini for subject detection.",
+                        "You can start on Google's Free Tier without adding a payment method, if your account and selected model are eligible. The free tier has usage limits and is not unlimited.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showGeminiKeyGuide = !showGeminiKeyGuide },
+                        modifier = Modifier.fillMaxWidth().testTag("gemini_key_guide_toggle")
+                    ) { Text(if (showGeminiKeyGuide) "Hide setup guide" else "Show step-by-step free key guide") }
+                    if (showGeminiKeyGuide) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("1. Open Google AI Studio", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Tap below and sign in with your Google account.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Button(
+                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikeys"))) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary)
+                            ) { Text("Open Google AI Studio") }
+
+                            Text("2. Find or create a project", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("New users may already have a default project and API key. If so, open API Keys and copy the key. Otherwise choose Create API key and follow the prompts. If you use an existing Google Cloud project, you may need to import it into AI Studio first.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            Text("3. Stay on the Free Tier", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Check the project's plan or tier in AI Studio and use a project marked Free. Do NOT tap Set up billing or link a paid billing account if you only want free usage. Free access depends on model, region, account eligibility, and current rate limits.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            Text("4. Copy your API key", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Use the copy control beside the key. Treat it like a password. Never post it in screenshots, messages, public repositories, or share it.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            Text("5. Connect it to ColorNest", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Return here, paste the key into the Gemini API key field, then tap Test connection & connect. ColorNest verifies the key and enables Gemini if the test succeeds.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            Text("If Google says Free Tier unavailable or asks for billing or verification, your account or project may not be eligible. Creating another key in the same project will not remove a project-level restriction. Do not continue into billing if you want to avoid charges.", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = geminiApiKey,
@@ -204,7 +249,7 @@ fun SettingsDialog(
                         )
                     }
                     Text(
-                        "Your key is stored encrypted on this device, not built into the APK. Gemini sends selected images to Google for analysis. On the free tier, Google may use submitted content to improve its products. Check current limits, pricing, and data-use terms before enabling it. Never share your key.",
+                        "Your key is stored encrypted on this device, not built into the APK. Gemini sends selected images to Google for analysis. Google states that content submitted on the unpaid Free Tier may be used to improve its products; avoid sending sensitive images. Free quotas and eligible models can change. Check AI Studio's current plan and usage page.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
