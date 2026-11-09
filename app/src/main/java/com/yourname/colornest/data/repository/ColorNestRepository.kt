@@ -261,46 +261,35 @@ class ColorNestRepository(private val context: Context) {
         return name
     }
 
-    // Background worker loop
+    // Background worker: only apply a confident user-trained image match.
+    // Never generate titles or guess a category from a filename/default folder.
     fun startBackgroundWorker(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
-                    val aiSetting = settingDao.getSetting("aiCategorizationEnabled")
-                    val isAiEnabled = aiSetting?.toBooleanStrictOrNull() ?: true
-
                     val pendingPage = pageDao.getNextPendingAiPage()
                     if (pendingPage != null) {
-                        pageDao.updatePage(pendingPage.copy(isProcessingAi = true, aiStatus = "Analyzing..."))
-
-                        val rawCategories = categoryDao.getAllCategories()
-                        var finalCategoryId: Long? = null
-
-                        // 1. Local AI Memory First
+                        pageDao.updatePage(pendingPage.copy(isProcessingAi = true, aiStatus = "Checking learned matches..."))
                         val localGuess = LocalBrain.guessCategoryLocally(pendingPage.imageUrl, learnedPatternDao)
                         if (localGuess != null) {
-                            finalCategoryId = localGuess.first
-                            pageDao.updatePage(
-                                pendingPage.copy(
-                                    categoryId = finalCategoryId,
-                                    isUncategorized = false,
-                                    aiSuggestedCategoryId = finalCategoryId,
-                                    isProcessingAi = false,
-                                    aiStatus = null
-                                )
-                            )
-                            LocalBrain.learnPattern(pendingPage.imageUrl, finalCategoryId, learnedPatternDao)
-                        } else if (isAiEnabled) {
-                            pageDao.updatePage(pendingPage.copy(aiStatus = "Matching Categories..."))
-                            delay(1200)
-
-                            // Never infer titles or assign a random first category from filenames.
-                            // If the local image learner has no confident match, leave the page for manual sorting.
-                            pageDao.updatePage(pendingPage.copy(isProcessingAi = false, aiStatus = "Ready to categorize"))
+                            val categoryId = localGuess.first
+                            pageDao.updatePage(pendingPage.copy(
+                                categoryId = categoryId,
+                                isUncategorized = false,
+                                aiSuggestedCategoryId = categoryId,
+                                isProcessingAi = false,
+                                aiStatus = null
+                            ))
+                            LocalBrain.learnPattern(pendingPage.imageUrl, categoryId, learnedPatternDao)
+                        } else {
+                            pageDao.updatePage(pendingPage.copy(
+                                isProcessingAi = false,
+                                aiStatus = "Ready to categorize"
+                            ))
                         }
                     }
                 } catch (e: Exception) {
-                    // Log and proceed
+                    // Keep the worker alive; the page remains available for manual sorting.
                 }
                 delay(5000)
             }
