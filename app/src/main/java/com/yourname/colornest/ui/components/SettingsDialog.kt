@@ -195,7 +195,7 @@ fun SettingsDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary)
                     ) { Text("Save API key") }
                     Text(
-                        "Your key is stored encrypted on this device, not built into the APK. Gemini sends selected images to Google for analysis. The API has usage limits; check AI Studio pricing and data-use terms before enabling it. Never share your key.",
+                        "Your key is stored encrypted on this device, not built into the APK. Gemini sends selected images to Google for analysis. On the free tier, Google may use submitted content to improve its products. Check current limits, pricing, and data-use terms before enabling it. Never share your key.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
