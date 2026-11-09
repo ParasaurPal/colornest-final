@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,9 +27,16 @@ jobs:
         run: gradle --no-daemon assembleDebug
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ColorNest-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+      - name: Rename APK for direct download
+        run: cp app/build/outputs/apk/debug/app-debug.apk ColorNest.apk
+      - name: Create or update latest test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view debug-latest >/dev/null 2>&1; then
+            gh release create debug-latest \
+              --title "ColorNest - Latest Test Build" \
+              --notes "Latest automatically built ColorNest debug APK for testing." \
+              --prerelease
+          fi
+          gh release upload debug-latest ColorNest.apk --clobber
