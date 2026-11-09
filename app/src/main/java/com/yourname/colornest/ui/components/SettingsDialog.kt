@@ -43,6 +43,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,11 +59,16 @@ import com.yourname.colornest.ui.theme.PurplePrimary
 fun SettingsDialog(
     isOpen: Boolean,
     aiEnabled: Boolean,
+    geminiEnabled: Boolean,
+    geminiApiKey: String,
     isSeeding: Boolean,
     wipeStep: Int,
     deleteCloud: Boolean,
     confirmDeleteText: String,
     onToggleAi: () -> Unit,
+    onGeminiApiKeyChange: (String) -> Unit,
+    onSaveGeminiApiKey: () -> Unit,
+    onToggleGemini: () -> Unit,
     onSeedCategories: () -> Unit,
     onResetAiLearning: () -> Unit,
     onSetWipeStep: (Int) -> Unit,
@@ -135,6 +143,65 @@ fun SettingsDialog(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                // Optional Gemini image understanding provider
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Gemini AI Subject Detection", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Optional cloud-based image understanding. Off uses free on-device recognition.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = geminiEnabled,
+                            onCheckedChange = { onToggleGemini() },
+                            enabled = geminiApiKey.isNotBlank(),
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PurplePrimary),
+                            modifier = Modifier.testTag("gemini_toggle_switch")
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Get your API key", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "1. Open Google AI Studio: aistudio.google.com/app/apikey\n2. Sign in with your Google account.\n3. Select Create API key (or copy an existing key).\n4. Paste it below and tap Save API key.\n5. Turn on Gemini AI Subject Detection.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = geminiApiKey,
+                        onValueChange = onGeminiApiKeyChange,
+                        modifier = Modifier.fillMaxWidth().testTag("gemini_api_key_input"),
+                        label = { Text("Gemini API key") },
+                        placeholder = { Text("Paste your key") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = onSaveGeminiApiKey,
+                        enabled = geminiApiKey.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth().testTag("save_gemini_api_key_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary)
+                    ) { Text("Save API key") }
+                    Text(
+                        "Your key is stored encrypted on this device, not built into the APK. Gemini sends selected images to Google for analysis. The API has usage limits; check AI Studio pricing and data-use terms before enabling it. Never share your key.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Setup Categories card
                 Column(
