@@ -135,7 +135,7 @@ class ColorNestRepository(private val context: Context) {
         }
         val transparent = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         transparent.setPixels(pixels, 0, width, 0, 0, width, height)
-        val file = File(imagesDir, "\u0024{baseName}_\u0024{System.currentTimeMillis()}_\u0024{(100..999).random()}.png")
+        val file = File(imagesDir, "${baseName}_${System.currentTimeMillis()}_${(100..999).random()}.png")
         FileOutputStream(file).use { output -> transparent.compress(Bitmap.CompressFormat.PNG, 100, output) }
         transparent.recycle()
         if (working !== bitmap) working.recycle()
