@@ -79,6 +79,41 @@ class ColorNestRepository(private val context: Context) {
         secureAiPreferences().edit().putString("gemini_api_key", key.trim()).apply()
     }
 
+    suspend fun testGeminiConnection(apiKey: String): String = withContext(Dispatchers.IO) {
+        require(apiKey.isNotBlank()) { "Paste your Gemini API key first." }
+        val payload = JSONObject()
+            .put("contents", JSONArray().put(JSONObject().put("parts",
+                JSONArray().put(JSONObject().put("text", "Reply with exactly: COLORNEST_CONNECTED"))
+            )))
+            .put("generationConfig", JSONObject().put("maxOutputTokens", 20))
+        val connection = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent").openConnection() as HttpsURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 20000
+            connection.readTimeout = 30000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("x-goog-api-key", apiKey.trim())
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            val response = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                val detail = runCatching { JSONObject(response).optJSONObject("error")?.optString("message") }.getOrNull()
+                throw IllegalStateException("Gemini connection failed ($status): " +
+                    (detail?.takeIf { it.isNotBlank() } ?: "Check the API key, model access, and AI Studio quota."))
+            }
+            val answer = JSONObject(response).optJSONArray("candidates")
+                ?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
+                ?.let { parts -> (0 until parts.length()).joinToString(" ") { parts.optJSONObject(it)?.optString("text").orEmpty() } }
+                .orEmpty()
+            if (answer.isBlank()) throw IllegalStateException("Gemini responded, but returned no text. Check model access and API quota.")
+            "Connected to Gemini successfully."
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private suspend fun callGeminiSubjectDetection(
         page: Page,
         categories: List<Category>,
@@ -122,8 +157,8 @@ class ColorNestRepository(private val context: Context) {
         """.trimIndent()
         val parts = JSONArray()
             .put(JSONObject().put("text", prompt))
-            .put(JSONObject().put("inline_data", JSONObject()
-                .put("mime_type", "image/jpeg")
+            .put(JSONObject().put("inlineData", JSONObject()
+                .put("mimeType", "image/jpeg")
                 .put("data", Base64.encodeToString(bytes, Base64.NO_WRAP))))
         val payload = JSONObject()
             .put("contents", JSONArray().put(JSONObject().put("parts", parts)))
@@ -141,12 +176,14 @@ class ColorNestRepository(private val context: Context) {
             val response = (if (status in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (status !in 200..299) {
-                throw IllegalStateException("Gemini request failed ($status). Check your API key and AI Studio quota.")
+                val detail = runCatching { JSONObject(response).optJSONObject("error")?.optString("message") }.getOrNull()
+                throw IllegalStateException("Gemini request failed ($status): " +
+                    (detail?.takeIf { it.isNotBlank() } ?: "Check your API key, model access, and AI Studio quota."))
             }
             val responseText = JSONObject(response)
                 .getJSONArray("candidates").getJSONObject(0)
                 .getJSONObject("content").getJSONArray("parts")
-                .getJSONObject(0).getString("text")
+                .let { parts -> (0 until parts.length()).joinToString("") { parts.optJSONObject(it)?.optString("text").orEmpty() } }
                 .trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             val result = JSONObject(responseText)
             val tags = result.optJSONArray("tags") ?: JSONArray()
@@ -457,7 +494,10 @@ class ColorNestRepository(private val context: Context) {
         val apiKey = if (useGemini) getGeminiApiKey() else ""
         val labels: List<String>
         val suggestedCategory: String?
-        if (useGemini && apiKey.isNotBlank()) {
+        if (useGemini) {
+            if (apiKey.isBlank()) {
+                throw IllegalStateException("Gemini is enabled but no API key is saved. Open Settings and connect your Gemini API key.")
+            }
             val result = callGeminiSubjectDetection(page, categories, apiKey)
             labels = result.first
             suggestedCategory = result.second
@@ -476,7 +516,8 @@ class ColorNestRepository(private val context: Context) {
                 labeler.close()
             }
         }
-        val category = findBestCategory(labels + listOfNotNull(suggestedCategory), categories)
+        val category = categories.firstOrNull { it.name.equals(suggestedCategory, ignoreCase = true) }
+            ?: findBestCategory(labels, categories)
         if (category != null) {
                 pageDao.updatePage(page.copy(
                     categoryId = category.id,
