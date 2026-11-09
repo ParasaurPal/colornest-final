@@ -20,7 +20,7 @@ interface PageDao {
     @Query("SELECT * FROM pages WHERE id = :id LIMIT 1")
     suspend fun getPageById(id: Long): Page?
 
-    @Query("SELECT * FROM pages WHERE isUncategorized = 1 AND isProcessingAi = 0 LIMIT 1")
+    @Query("SELECT * FROM pages WHERE isUncategorized = 1 AND isProcessingAi = 0 AND aiStatus = 'Queued' LIMIT 1")
     suspend fun getNextPendingAiPage(): Page?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
