@@ -21,7 +21,10 @@ object LocalBrain {
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
-                val brightness = (r + g + b) / 3f
+                val alpha = Color.alpha(pixel) / 255f
+                val foregroundBrightness = (r + g + b) / 3f
+                // Composite transparent line art over white paper for stable fingerprints.
+                val brightness = foregroundBrightness * alpha + 255f * (1f - alpha)
                 fingerprint.add(brightness)
             }
         }
