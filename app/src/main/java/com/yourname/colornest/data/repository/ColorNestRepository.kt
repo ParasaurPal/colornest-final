@@ -556,21 +556,23 @@ class ColorNestRepository(private val context: Context) {
                 labeler.close()
             }
         }
-        val category = categories.firstOrNull { it.name.equals(suggestedCategory, ignoreCase = true) }
-            ?: findBestCategory(labels, categories)
+        val category = if (labels.isNotEmpty()) {
+            categories.firstOrNull { it.name.equals(suggestedCategory, ignoreCase = true) }
+                ?: findBestCategory(labels, categories)
+        } else null
         if (category != null) {
                 pageDao.updatePage(page.copy(
                     categoryId = category.id,
                     isUncategorized = false,
                     aiSuggestedCategoryId = category.id,
-                    tags = (page.tags + labels).distinct(),
+                    tags = normalizeSubjectTags(page.tags + labels),
                     isProcessingAi = false,
                     aiStatus = null
                 ))
                 LocalBrain.learnPattern(page.imageUrl, category.id, learnedPatternDao)
             } else {
                 pageDao.updatePage(page.copy(
-                    tags = (page.tags + labels).distinct(),
+                    tags = normalizeSubjectTags(page.tags + labels),
                     isUncategorized = true,
                     isProcessingAi = false,
                     aiStatus = if (labels.isEmpty()) "No subject found — ready to tag" else "AI labels found — choose a category"
