@@ -14,6 +14,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -66,6 +76,10 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var showAiDialog by remember { mutableStateOf(false) }
+    var showSelectImagesDialog by remember { mutableStateOf(false) }
+    val selectedImageIds = remember { mutableStateListOf<Long>() }
+    val untaggedPages = uiState.pages.filter { it.isUncategorized }
 
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -126,10 +140,10 @@ fun HomeScreen(
                                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                val currentCategoryName = if (uiState.activeCategoryId != null) {
-                                    uiState.categories.find { it.id == uiState.activeCategoryId }?.name ?: "Category"
-                                } else {
-                                    "All Pages"
+                                val currentCategoryName = when (uiState.activeCategoryId) {
+                                    -1L -> "Untagged"
+                                    null -> "All Pages"
+                                    else -> uiState.categories.find { it.id == uiState.activeCategoryId }?.name ?: "Category"
                                 }
                                 Text(
                                     text = currentCategoryName,
@@ -203,6 +217,18 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .testTag("search_text_field")
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showAiDialog = true },
+                        enabled = !uiState.isDetectingSubjects && untaggedPages.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth().testTag("ai_subject_detection_button")
+                    ) {
+                        Text(
+                            if (uiState.isDetectingSubjects) "Detecting subjects..."
+                            else "AI Subject Detection  •  " + untaggedPages.size + " untagged"
+                        )
+                    }
                 }
             },
             floatingActionButton = {
@@ -271,6 +297,86 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    if (showAiDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiDialog = false },
+            title = { Text("AI Subject Detection") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Use free on-device image recognition to identify subjects and match them to your categories.")
+                    Button(
+                        onClick = {
+                            showAiDialog = false
+                            viewModel.detectSubjects(null)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Process entire Untagged collection (" + untaggedPages.size + ")")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            selectedImageIds.clear()
+                            showAiDialog = false
+                            showSelectImagesDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Choose images to process")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAiDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showSelectImagesDialog) {
+        AlertDialog(
+            onDismissRequest = { showSelectImagesDialog = false },
+            title = { Text("Choose images") },
+            text = {
+                Column {
+                    Text(selectedImageIds.size.toString() + " selected")
+                    LazyColumn(modifier = Modifier.height(320.dp)) {
+                        items(untaggedPages, key = { it.id }) { page ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Checkbox(
+                                    checked = selectedImageIds.contains(page.id),
+                                    onCheckedChange = { checked ->
+                                        if (checked) selectedImageIds.add(page.id)
+                                        else selectedImageIds.remove(page.id)
+                                    }
+                                )
+                                Text(
+                                    text = page.title.ifBlank { "Untitled image #" + page.id },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val ids = selectedImageIds.toList()
+                        showSelectImagesDialog = false
+                        selectedImageIds.clear()
+                        if (ids.isNotEmpty()) viewModel.detectSubjects(ids)
+                    },
+                    enabled = selectedImageIds.isNotEmpty()
+                ) { Text("Process selected") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSelectImagesDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     // Add Page Dialog
