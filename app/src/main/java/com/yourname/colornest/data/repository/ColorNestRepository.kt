@@ -423,7 +423,10 @@ class ColorNestRepository(private val context: Context) {
             val synonyms = categorySynonyms(name)
             normalized.any { label ->
                 label == name || label.contains(name) || name.contains(label) ||
-                    synonyms.any { synonym -> label == synonym || label.contains(synonym) }
+                    synonyms.any { synonym -> label == synonym || label.contains(synonym) } ||
+                    learnedTags[category.id].orEmpty().any { learnedTag ->
+                        label == learnedTag || label.contains(learnedTag)
+                    }
             }
         }.maxByOrNull { depth(it) }
     }
