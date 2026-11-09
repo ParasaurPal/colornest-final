@@ -88,6 +88,7 @@ fun SettingsDialog(
     if (!isOpen) return
     val context = LocalContext.current
     var showGeminiKeyGuide by remember { mutableStateOf(false) }
+    var showFullAppGuide by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onClose) {
         Surface(
@@ -116,6 +117,62 @@ fun SettingsDialog(
                     )
                     IconButton(onClick = onClose, modifier = Modifier.testTag("close_settings_button")) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Complete in-app user guide, including Gemini setup.
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(PurpleContainerLight.copy(alpha = 0.35f))
+                        .padding(16.dp)
+                ) {
+                    Text("ColorNest User Guide", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = PurplePrimary)
+                    Text("Learn how to import, organize, find, edit, and protect your coloring collection.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showFullAppGuide = !showFullAppGuide },
+                        modifier = Modifier.fillMaxWidth().testTag("full_app_guide_toggle")
+                    ) { Text(if (showFullAppGuide) "Close complete app guide" else "Open complete app guide") }
+                    if (showFullAppGuide) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("1. Your collection", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("The home screen shows your coloring pages. Choose All Pages in the side menu to browse everything, or choose a category to narrow the collection. Untagged contains pages that do not yet have a category.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("2. Add images and PDF books", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Tap the + button to import from your device. Select one or more images, or choose a PDF. PDF pages are rendered into individual page entries. Keep the app open while a large import finishes; the progress indicator shows its status. If an import appears incomplete, check the selected file and available device storage, then try again.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("3. Categories and subcategories", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Open the side menu to browse your category tree. Categories can contain subcategories, for example Animals > Mammals > Canines > Dogs. Use the add-category action to create a category under the currently selected parent. Settings > Load Default Categories can populate the starter category tree; avoid loading it repeatedly if you have already customized your tree.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("4. Search, favorites, and page details", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Use the search box to find page titles or tags. Open a page's details/edit action to change its title, category, and tags. Use the heart on a page card to add or remove it from Favorites. Tags help you find pages by subject, style, or any labels you choose.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("5. AI subject detection", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("The AI Subject Detection button processes uncategorized images. Choose to process the whole untagged collection or select individual images. Make sure your categories exist first so the AI has suitable destinations. Detection can take time; wait for processing to finish before starting another batch. With Gemini off, ColorNest uses its on-device recognition and learned local patterns.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("6. Teach the AI with corrections", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("When a page is assigned to the wrong category, edit its details and move it to the correct category. ColorNest can use these corrections and visual similarities as local learning signals for future suggestions. Add clear, useful tags too. Learning is not guaranteed to identify every image correctly. Reset AI Learning in Settings clears the learned patterns; use it only if you want to start learning over.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("7. Gemini AI setup (optional)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Gemini analyzes selected images using Google's API. It is optional: leave it off to use on-device recognition. Open the Gemini section below and follow these steps:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("• Open Google AI Studio and sign in.\n• Find an existing API key or create one for a project. Some existing projects may need to be imported into AI Studio.\n• Check that the project and selected model are eligible for the Free Tier. Do not set up billing or link a paid billing account if you want to avoid charges.\n• Copy the key privately, return to ColorNest, paste it into the Gemini API key field, and tap Test connection & connect.\n• If the test succeeds, Gemini is enabled. If it fails, check the key, internet connection, project eligibility, and current AI Studio quota.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Button(
+                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikeys"))) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary)
+                            ) { Text("Open Google AI Studio") }
+                            Text("Privacy and cost: the API key is stored encrypted on this device and is not bundled into the APK. Images processed with Gemini are sent to Google. Google says content submitted on the unpaid Free Tier may be used to improve its products, so do not send sensitive images. Free quotas, models, and eligibility can change. Monitor usage in AI Studio. Gemini is not unlimited or guaranteed to remain free.", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                            Text("8. Appearance and viewing", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Use the sun/moon control on the home screen to switch light and dark themes. Dark mode is intended for comfortable viewing and can display coloring line art with an inverted appearance where supported.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("9. Open or share a page", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Use the page card's available open/share actions to send an image to a compatible drawing, printing, or sharing app. The receiving app controls its own editing and print settings.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("10. Troubleshooting and data safety", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("If a page is missing, check All Pages, the selected category, and the search text. If AI does not run, confirm AI Categorization is on, images are in Untagged, and (for Gemini) the connection test succeeds. If Gemini reports quota or permission errors, check the project's plan and usage in AI Studio; do not add billing unless you intend to use a paid service. Keep separate backups of images you cannot replace. Erase All Images & Data permanently removes the app's local collection and settings after its confirmation steps; it cannot be undone.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
 
