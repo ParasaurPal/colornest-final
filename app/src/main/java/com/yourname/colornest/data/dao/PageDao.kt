@@ -20,6 +20,12 @@ interface PageDao {
     @Query("SELECT * FROM pages WHERE id = :id LIMIT 1")
     suspend fun getPageById(id: Long): Page?
 
+    @Query("SELECT * FROM pages WHERE isUncategorized = 1 ORDER BY createdAt DESC")
+    suspend fun getUncategorizedPages(): List<Page>
+
+    @Query("SELECT * FROM pages WHERE id IN (:ids)")
+    suspend fun getPagesByIds(ids: List<Long>): List<Page>
+
     @Query("SELECT * FROM pages WHERE isUncategorized = 1 AND isProcessingAi = 0 AND aiStatus = 'Queued' LIMIT 1")
     suspend fun getNextPendingAiPage(): Page?
 
