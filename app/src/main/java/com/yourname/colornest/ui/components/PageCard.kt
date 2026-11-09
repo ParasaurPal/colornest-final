@@ -175,7 +175,7 @@ fun PageCard(
                 verticalAlignment = Alignment.Top
             ) {
                 Text(
-                    text = page.title,
+                    text = page.title.ifBlank { "Untitled page — add a title" },
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
