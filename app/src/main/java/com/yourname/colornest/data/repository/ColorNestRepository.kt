@@ -12,6 +12,13 @@ import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.util.Base64
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.LocalBrain
 import com.yourname.colornest.data.PrepopulateCategories
@@ -53,6 +60,90 @@ class ColorNestRepository(private val context: Context) {
 
     suspend fun setSetting(key: String, value: String) = withContext(Dispatchers.IO) {
         settingDao.setSetting(Setting(key = key, value = value))
+    }
+
+    private fun secureAiPreferences() = EncryptedSharedPreferences.create(
+        context,
+        "colornest_secure_ai",
+        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    suspend fun getGeminiApiKey(): String = withContext(Dispatchers.IO) {
+        runCatching { secureAiPreferences().getString("gemini_api_key", "").orEmpty() }.getOrDefault("")
+    }
+
+    suspend fun saveGeminiApiKey(key: String) = withContext(Dispatchers.IO) {
+        secureAiPreferences().edit().putString("gemini_api_key", key.trim()).apply()
+    }
+
+    private fun callGeminiSubjectDetection(
+        page: Page,
+        categories: List<Category>,
+        apiKey: String
+    ): Pair<List<String>, String?> {
+        val source = BitmapFactory.decodeFile(page.imageUrl)
+            ?: throw IllegalStateException("Could not open this image")
+        val maxSide = max(source.width, source.height)
+        val scaled = if (maxSide > 1024) {
+            val ratio = 1024f / maxSide
+            Bitmap.createScaledBitmap(source, (source.width * ratio).toInt().coerceAtLeast(1), (source.height * ratio).toInt().coerceAtLeast(1), true)
+        } else source
+        val bytes = java.io.ByteArrayOutputStream().use { output ->
+            scaled.compress(Bitmap.CompressFormat.JPEG, 82, output)
+            output.toByteArray()
+        }
+        if (scaled !== source) scaled.recycle()
+        source.recycle()
+
+        val categoryNames = categories.joinToString(", ") { it.name }
+        val prompt = """
+            Identify the main visible subject(s) in this coloring-page image.
+            Return ONLY valid JSON with this exact shape:
+            {"tags":["short lowercase subject tags"],"category":"one exact category name from the list or null"}
+            Available categories: $categoryNames
+            Choose the most specific matching category. If none fits, use null.
+            Do not invent a title. Do not describe the paper/background. Return up to 8 useful tags.
+        """.trimIndent()
+        val parts = JSONArray()
+            .put(JSONObject().put("text", prompt))
+            .put(JSONObject().put("inline_data", JSONObject()
+                .put("mime_type", "image/jpeg")
+                .put("data", Base64.encodeToString(bytes, Base64.NO_WRAP))))
+        val payload = JSONObject()
+            .put("contents", JSONArray().put(JSONObject().put("parts", parts)))
+            .put("generationConfig", JSONObject().put("responseMimeType", "application/json"))
+        val connection = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent").openConnection() as HttpsURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 20000
+            connection.readTimeout = 30000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("x-goog-api-key", apiKey)
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            val response = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                throw IllegalStateException("Gemini request failed ($status). Check your API key and AI Studio quota.")
+            }
+            val responseText = JSONObject(response)
+                .getJSONArray("candidates").getJSONObject(0)
+                .getJSONObject("content").getJSONArray("parts")
+                .getJSONObject(0).getString("text")
+                .trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val result = JSONObject(responseText)
+            val tags = result.optJSONArray("tags") ?: JSONArray()
+            val labels = (0 until tags.length()).mapNotNull { index ->
+                tags.optString(index).takeIf { it.isNotBlank() }?.lowercase()?.trim()
+            }.distinct().take(8)
+            val category = result.optString("category").takeIf { it.isNotBlank() && !it.equals("null", true) }
+            return labels to category
+        } finally {
+            connection.disconnect()
+        }
     }
 
     suspend fun insertCategory(name: String, parentId: Long?): Long = withContext(Dispatchers.IO) {
@@ -313,17 +404,31 @@ class ColorNestRepository(private val context: Context) {
             pageDao.updatePage(page.copy(isProcessingAi = false, aiStatus = "Image unavailable"))
             return
         }
-        val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
-        try {
-            val image = InputImage.fromFilePath(context, Uri.fromFile(file))
-            val labels = Tasks.await(labeler.process(image))
-                .filter { it.confidence >= 0.45f }
-                .sortedByDescending { it.confidence }
-                .take(8)
-                .map { it.text.lowercase() }
-                .distinct()
-            val category = findBestCategory(labels, categories)
-            if (category != null) {
+        val useGemini = settingDao.getSetting("geminiEnabled") == "true"
+        val apiKey = if (useGemini) getGeminiApiKey() else ""
+        val labels: List<String>
+        val suggestedCategory: String?
+        if (useGemini && apiKey.isNotBlank()) {
+            val result = callGeminiSubjectDetection(page, categories, apiKey)
+            labels = result.first
+            suggestedCategory = result.second
+        } else {
+            val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
+            try {
+                val image = InputImage.fromFilePath(context, Uri.fromFile(file))
+                labels = Tasks.await(labeler.process(image))
+                    .filter { it.confidence >= 0.45f }
+                    .sortedByDescending { it.confidence }
+                    .take(8)
+                    .map { it.text.lowercase() }
+                    .distinct()
+                suggestedCategory = null
+            } finally {
+                labeler.close()
+            }
+        }
+        val category = findBestCategory(labels + listOfNotNull(suggestedCategory), categories)
+        if (category != null) {
                 pageDao.updatePage(page.copy(
                     categoryId = category.id,
                     isUncategorized = false,
