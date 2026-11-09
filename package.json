@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "echo 'ColorNest Android App Build Verified' && exit 0",
-    "lint": "echo 'No lint errors in Android project' && exit 0",
+    "build": "vite build",
+    "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
