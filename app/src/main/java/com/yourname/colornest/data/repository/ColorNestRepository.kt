@@ -3,6 +3,7 @@ package com.yourname.colornest.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -114,6 +115,33 @@ class ColorNestRepository(private val context: Context) {
         categoryDao.insertCategories(defaults)
     }
 
+    // Convert white paper to transparency while preserving anti-aliased linework.
+    // The source bitmap is never modified; the transparent PNG is a separate app copy.
+    private fun saveTransparentLineArt(bitmap: Bitmap, baseName: String): String {
+        val maxDimension = max(bitmap.width, bitmap.height)
+        val working = if (maxDimension > 2000) {
+            val scale = 2000f / maxDimension
+            Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true)
+        } else bitmap
+        val width = working.width
+        val height = working.height
+        val pixels = IntArray(width * height)
+        working.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (index in pixels.indices) {
+            val pixel = pixels[index]
+            val luminance = (0.2126 * AndroidColor.red(pixel) + 0.7152 * AndroidColor.green(pixel) + 0.0722 * AndroidColor.blue(pixel)).toInt()
+            val alpha = (255 - luminance).coerceIn(0, 255)
+            pixels[index] = AndroidColor.argb(alpha, 0, 0, 0)
+        }
+        val transparent = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        transparent.setPixels(pixels, 0, width, 0, 0, width, height)
+        val file = File(imagesDir, "\u0024{baseName}_\u0024{System.currentTimeMillis()}_\u0024{(100..999).random()}.png")
+        FileOutputStream(file).use { output -> transparent.compress(Bitmap.CompressFormat.PNG, 100, output) }
+        transparent.recycle()
+        if (working !== bitmap) working.recycle()
+        return file.absolutePath
+    }
+
     // Save Bitmap scaled to max 600px width/height
     private fun saveScaledBitmap(bitmap: Bitmap, baseName: String): String {
         val width = bitmap.width
@@ -153,13 +181,12 @@ class ColorNestRepository(private val context: Context) {
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 if (bitmap != null) {
                     onProgress("Saving Image...", 80)
-                    val title = fileName.substringBeforeLast(".")
-                    val savedPath = saveScaledBitmap(bitmap, "img")
+                    val savedPath = saveTransparentLineArt(bitmap, "img")
                     bitmap.recycle()
 
                     pageDao.insertPage(
                         Page(
-                            title = title.ifBlank { "Sorting..." },
+                            title = "",
                             imageUrl = savedPath,
                             isUncategorized = true,
                             aiStatus = "Queued"
@@ -188,7 +215,7 @@ class ColorNestRepository(private val context: Context) {
             val fileDescriptor = ParcelFileDescriptor.open(tempPdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
             val pdfRenderer = PdfRenderer(fileDescriptor)
             val pageCount = pdfRenderer.pageCount
-            val baseTitle = pdfName.substringBeforeLast(".pdf")
+            // PDF page titles remain blank until the user enters one.
 
             for (i in 0 until pageCount) {
                 val percent = ((i + 1) * 100) / pageCount
@@ -199,11 +226,11 @@ class ColorNestRepository(private val context: Context) {
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
 
-                val savedPath = saveScaledBitmap(bitmap, "pdf_page")
+                val savedPath = saveTransparentLineArt(bitmap, "pdf_page")
                 bitmap.recycle()
 
                 val pageEntity = Page(
-                    title = "$baseTitle - Page ${i + 1}",
+                    title = "",
                     imageUrl = savedPath,
                     isUncategorized = true,
                     aiStatus = "Queued"
@@ -267,38 +294,8 @@ class ColorNestRepository(private val context: Context) {
                             pageDao.updatePage(pendingPage.copy(aiStatus = "Matching Categories..."))
                             delay(1200)
 
-                            // Intelligent categorization heuristic matching title or categories
-                            val lowerTitle = pendingPage.title.lowercase()
-                            val matched = rawCategories.find { cat ->
-                                lowerTitle.contains(cat.name.lowercase()) ||
-                                        cat.name.lowercase().contains(lowerTitle)
-                            } ?: rawCategories.firstOrNull()
-
-                            if (matched != null) {
-                                finalCategoryId = matched.id
-                                val inferredComplexity = when {
-                                    lowerTitle.contains("mandala") || lowerTitle.contains("pattern") -> "Advanced"
-                                    lowerTitle.contains("expert") || lowerTitle.contains("intricate") -> "Expert"
-                                    lowerTitle.contains("easy") || lowerTitle.contains("simple") -> "Beginner"
-                                    else -> "Medium"
-                                }
-                                pageDao.updatePage(
-                                    pendingPage.copy(
-                                        categoryId = finalCategoryId,
-                                        complexity = inferredComplexity,
-                                        time = "45m",
-                                        tool = "Colored Pencils",
-                                        isUncategorized = false,
-                                        aiSuggestedCategoryId = finalCategoryId,
-                                        isProcessingAi = false,
-                                        aiStatus = null
-                                    )
-                                )
-                                LocalBrain.learnPattern(pendingPage.imageUrl, finalCategoryId, learnedPatternDao)
-                            } else {
-                                pageDao.updatePage(pendingPage.copy(isProcessingAi = false, aiStatus = "Ready to categorize"))
-                            }
-                        } else {
+                            // Never infer titles or assign a random first category from filenames.
+                            // If the local image learner has no confident match, leave the page for manual sorting.
                             pageDao.updatePage(pendingPage.copy(isProcessingAi = false, aiStatus = "Ready to categorize"))
                         }
                     }
