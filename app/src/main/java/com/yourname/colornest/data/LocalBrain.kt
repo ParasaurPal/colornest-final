@@ -66,14 +66,23 @@ object LocalBrain {
         if (categoryId <= 0) return@withContext false
         val fingerprint = generateFingerprintFromFile(imagePath) ?: return@withContext false
         val existingPatterns = dao.getAllPatterns()
-        val isDuplicate = existingPatterns.any { pattern ->
-            compareFingerprints(pattern.fingerprint, fingerprint) > 0.95f
-        }
-        if (!isDuplicate) {
+        val closest = existingPatterns
+            .map { pattern -> pattern to compareFingerprints(pattern.fingerprint, fingerprint) }
+            .filter { it.second > 0.85f }
+            .maxByOrNull { it.second }
+
+        if (closest != null) {
+            // A user's manual correction overrides an older AI or user label for
+            // this same visual pattern, rather than being discarded as a duplicate.
+            if (closest.first.categoryId != categoryId) {
+                dao.correctPatternCategory(closest.first.id, categoryId)
+                true
+            } else {
+                false
+            }
+        } else {
             dao.insertPattern(LearnedPattern(fingerprint = fingerprint, categoryId = categoryId))
             true
-        } else {
-            false
         }
     }
 
