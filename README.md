@@ -14,6 +14,14 @@ ColorNest is a **PWA-first coloring-page library**. Install it from a supported 
 - Export and restore a complete portable JSON library backup.
 - Optionally synchronize page images and page metadata with Google Drive.
 
+## Install and fullscreen
+
+- **Android:** open the hosted PWA in Chrome, then use the browser menu → **Install app** or **Add to Home screen**.
+- **Desktop:** use the install icon in Chrome/Edge when it appears.
+- **iPhone/iPad:** open in Safari → Share → **Add to Home Screen**. iOS opens the installed site in its standalone app window; the explicit Fullscreen button is available only in browsers that support the Fullscreen API.
+
+The manifest requests fullscreen display mode first and falls back to standalone/minimal UI where the platform does not support fullscreen PWAs.
+
 ## Storage model
 
 Local browser storage is the working library and is available offline. Each browser/device has its own local copy. Use **Settings → This device & backups** to export a complete backup and restore it on another device. Browser storage quotas and eviction policies vary by platform, so keep a separate backup for important libraries.
