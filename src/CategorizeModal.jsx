@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from './db';
-import { propagatePageChange } from './driveSync';
+import { propagatePageChange, triggerBackgroundSync } from './driveSync';
 
 export default function CategorizeModal({ page, categories, onClose }) {
   const [title, setTitle] = useState(page.title);
@@ -11,15 +11,23 @@ export default function CategorizeModal({ page, categories, onClose }) {
     const tagArray = tags.split(',').map(t => t.trim()).filter(t => t !== "");
     const newCategoryId = selectedCat ? parseInt(selectedCat) : null;
     
-    await db.pages.update(page.id, {
-      title: title,
-      categoryId: newCategoryId,
-      isUncategorized: 0,
-      tags: tagArray
+    await db.transaction('rw', db.pages, db.tags, async () => {
+      await db.pages.update(page.id, {
+        title,
+        categoryId: newCategoryId,
+        isUncategorized: 0,
+        tags: tagArray,
+        updatedAt: Date.now(),
+      });
+      for (const name of tagArray) {
+        const existing = await db.tags.where('name').equals(name).first();
+        if (!existing) await db.tags.add({ name, createdAt: Date.now() });
+      }
     });
 
-    // Move/rename the Drive copy to match (no-op when not connected).
+    // Propagate edits to Drive when online; full metadata sync runs in background.
     propagatePageChange(page.id);
+    triggerBackgroundSync(true);
 
     onClose();
   };

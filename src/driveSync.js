@@ -11,8 +11,6 @@
 // whose Drive file was trashed is removed from the app. Trashed Drive files
 // stay recoverable from the Drive trash for 30 days.
 import { db } from './db';
-import { Capacitor } from '@capacitor/core';
-import { Filesystem, Directory } from '@capacitor/filesystem';
 import {
   getOrCreateFolder,
   findFolder,
@@ -24,6 +22,8 @@ import {
   trashFile,
   checkRemoteState,
   isDriveConnected,
+  findFileByName,
+  updateFileContent,
 } from './driveService';
 import { DRIVE_ROOT_FOLDER_NAME, DRIVE_UNTAGGED_FOLDER_NAME } from './driveConfig';
 
@@ -116,22 +116,7 @@ async function imageUrlToBlob(imageUrl) {
   return res.blob();
 }
 
-async function saveDownloadedImage(blob, fileName) {
-  if (Capacitor.isNativePlatform()) {
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = () => reject(new Error('Failed to read downloaded image'));
-      reader.readAsDataURL(blob);
-    });
-    const savedFile = await Filesystem.writeFile({
-      path: `colornest/${fileName}`,
-      data: base64,
-      directory: Directory.Data,
-      recursive: true,
-    });
-    return Capacitor.convertFileSrc(savedFile.uri);
-  }
+async function saveDownloadedImage(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => resolve(reader.result);
@@ -162,6 +147,139 @@ async function ensureCategoryFolder(rootId, allCategories, category) {
   return parentId;
 }
 
+
+// ---------- Cross-device page metadata ----------
+
+const PAGE_META_PREFIX = '.colornest-page-';
+
+function pageMetadataName(syncId) {
+  return `${PAGE_META_PREFIX}${syncId}.json`;
+}
+
+function categoryPathFor(categoryId, categories) {
+  const path = [];
+  let current = categories.find((item) => item.id === categoryId);
+  let guard = 0;
+  while (current && guard++ < 50) {
+    path.unshift(current.name);
+    current = categories.find((item) => item.id === current.parentId);
+  }
+  return path;
+}
+
+async function ensureLocalCategoryPath(path) {
+  let parentId = null;
+  for (const name of path || []) {
+    let category = await db.categories.where('name').equals(name).filter((item) => item.parentId === parentId).first();
+    if (!category) {
+      const id = await db.categories.add({ name, parentId });
+      category = { id, name, parentId };
+    }
+    parentId = category.id;
+  }
+  return parentId;
+}
+
+function buildPageMetadata(page, categories) {
+  return {
+    schemaVersion: 1,
+    syncId: page.syncId,
+    driveFileId: page.driveFileId || null,
+    title: page.title || 'Untitled page',
+    categoryPath: categoryPathFor(page.categoryId, categories),
+    tags: Array.isArray(page.tags) ? page.tags : [],
+    complexity: page.complexity || 'Beginner',
+    time: page.time || 'TBD',
+    tool: page.tool || 'TBD',
+    isFavorite: page.isFavorite ? 1 : 0,
+    isCompleted: page.isCompleted ? 1 : 0,
+    progress: Number(page.progress || 0),
+    isUncategorized: page.isUncategorized ? 1 : 0,
+    updatedAt: Number(page.updatedAt || Date.now()),
+  };
+}
+
+async function syncPageMetadata(rootId, remoteFiles) {
+  const categories = await db.categories.toArray();
+  const pages = await db.pages.toArray();
+  const remoteByDriveId = new Map();
+
+  const tombstones = await readTombstones();
+  for (const file of remoteFiles) {
+    if (!file.name?.startsWith(PAGE_META_PREFIX) || !file.name.endsWith('.json')) continue;
+    try {
+      const raw = await downloadFile(file.id);
+      const metadata = JSON.parse(await raw.text());
+      if (metadata.driveFileId && tombstones.has(metadata.driveFileId)) {
+        await trashFile(file.id).catch(() => {});
+        continue;
+      }
+      if (metadata.syncId && metadata.driveFileId) remoteByDriveId.set(metadata.driveFileId, { file, metadata });
+    } catch (error) {
+      console.warn('Skipping unreadable ColorNest metadata file:', error.message);
+    }
+  }
+
+  let metadataUploaded = 0;
+  let metadataDownloaded = 0;
+
+  for (const originalPage of pages) {
+    if (!originalPage.driveFileId) continue;
+    let page = originalPage;
+    const importedFromDrive = !page.syncId;
+    let syncId = page.syncId;
+    let remoteEntry = remoteByDriveId.get(page.driveFileId);
+
+    // A page added directly from Drive adopts the stable identity and
+    // complete metadata associated with its image.
+    if (!syncId && remoteEntry) {
+      syncId = remoteEntry.metadata.syncId;
+      page = { ...page, syncId };
+      await db.pages.update(page.id, { syncId });
+    }
+    if (!syncId) {
+      syncId = globalThis.crypto?.randomUUID?.() || `page-${page.id}-${Date.now()}`;
+      page = { ...page, syncId, updatedAt: page.updatedAt || Date.now() };
+      await db.pages.update(page.id, { syncId, updatedAt: page.updatedAt });
+    }
+
+    const remoteMeta = remoteEntry?.metadata;
+    const localUpdatedAt = Number(page.updatedAt || 0);
+    if (remoteMeta && (importedFromDrive || Number(remoteMeta.updatedAt || 0) > localUpdatedAt)) {
+      const categoryId = await ensureLocalCategoryPath(remoteMeta.categoryPath || []);
+      const changes = {
+        title: remoteMeta.title || page.title,
+        categoryId,
+        tags: Array.isArray(remoteMeta.tags) ? remoteMeta.tags : [],
+        complexity: remoteMeta.complexity || page.complexity,
+        time: remoteMeta.time || page.time,
+        tool: remoteMeta.tool || page.tool,
+        isFavorite: remoteMeta.isFavorite ? 1 : 0,
+        isCompleted: remoteMeta.isCompleted ? 1 : 0,
+        progress: Number(remoteMeta.progress || 0),
+        isUncategorized: remoteMeta.isUncategorized ? 1 : 0,
+        syncId,
+        updatedAt: Number(remoteMeta.updatedAt || Date.now()),
+      };
+      await db.pages.update(page.id, changes);
+      metadataDownloaded++;
+    } else {
+      const metadata = buildPageMetadata(page, categories);
+      const name = pageMetadataName(syncId);
+      const blob = new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' });
+      const existing = remoteEntry?.file || await findFileByName(name, rootId);
+      if (existing) {
+        await updateFileContent(existing.id, blob, 'application/json');
+      } else {
+        await uploadFile(blob, name, rootId, 'application/json');
+      }
+      metadataUploaded++;
+    }
+  }
+
+  return { metadataUploaded, metadataDownloaded };
+}
+
 // ---------- Full sync ----------
 
 export function formatSyncSummary(result) {
@@ -172,6 +290,8 @@ export function formatSyncSummary(result) {
   if (result.moved > 0) parts.push(`${result.moved} moved`);
   if (result.renamed > 0) parts.push(`${result.renamed} renamed`);
   if (result.removedLocal > 0) parts.push(`${result.removedLocal} removed`);
+  if (result.metadataUploaded > 0) parts.push(`${result.metadataUploaded} metadata records uploaded`);
+  if (result.metadataDownloaded > 0) parts.push(`${result.metadataDownloaded} metadata records updated`);
   return parts.length === 0
     ? 'Sync complete — everything is up to date'
     : 'Sync complete — ' + parts.join(', ');
@@ -191,6 +311,8 @@ export async function syncDrive() {
   let moved = 0;
   let renamed = 0;
   let removedLocal = 0;
+  let metadataUploaded = 0;
+  let metadataDownloaded = 0;
 
   const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
   const untaggedId = await getOrCreateFolder(DRIVE_UNTAGGED_FOLDER_NAME, rootId);
@@ -241,6 +363,10 @@ export async function syncDrive() {
       const state = await checkRemoteState(driveId);
       if (state === 'trashed' || state === 'gone') {
         await db.pages.delete(page.id);
+        if (page.syncId) {
+          const metadataFile = await findFileByName(pageMetadataName(page.syncId), rootId);
+          if (metadataFile) await trashFile(metadataFile.id).catch(() => {});
+        }
         removedLocal++;
       }
       // 'exists-elsewhere': the user moved it out of the ColorNest tree;
@@ -275,6 +401,7 @@ export async function syncDrive() {
     const fileName = `drive_${remote.id}_${Date.now()}.${extension}`;
     const localImageUrl = await saveDownloadedImage(blob, fileName);
     await db.pages.add({
+      updatedAt: Date.now(),
       title: remote.name.includes('.')
         ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page'
         : remote.name,
@@ -293,20 +420,24 @@ export async function syncDrive() {
     downloaded++;
   }
 
+  const metadataResult = await syncPageMetadata(rootId, remoteFiles);
+  metadataUploaded = metadataResult.metadataUploaded;
+  metadataDownloaded = metadataResult.metadataDownloaded;
+
   await setSetting(KEY_LAST_SYNC, Date.now());
-  return { notConnected: false, uploaded, downloaded, moved, renamed, removedLocal };
+  return { notConnected: false, uploaded, downloaded, moved, renamed, removedLocal, metadataUploaded, metadataDownloaded };
 }
 
 /**
  * Fire-and-forget background sync (used on app open and after imports).
  * Never throws; concurrent calls share one in-flight sync.
  */
-export function triggerBackgroundSync() {
+export function triggerBackgroundSync(force = false) {
   if (syncInFlight) return syncInFlight;
   syncInFlight = (async () => {
     try {
       if (!isDriveConnected()) return null;
-      if (!(await isScanOnOpenEnabled())) return null;
+      if (!force && !(await isScanOnOpenEnabled())) return null;
       return await syncDrive();
     } catch (e) {
       console.log('Background Drive sync failed:', e.message);
@@ -331,6 +462,13 @@ export async function trashPageFile(page) {
   if (!isDriveConnected()) return;
   try {
     await trashFile(driveId);
+    if (page.syncId) {
+      const rootId = await findFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+      if (rootId) {
+        const metadataFile = await findFileByName(pageMetadataName(page.syncId), rootId);
+        if (metadataFile) await trashFile(metadataFile.id);
+      }
+    }
   } catch (e) {
     // Offline or already gone — the tombstone covers the re-download case.
     console.log('Could not trash Drive file:', e.message);
