@@ -40,7 +40,7 @@ The production site must be served over HTTPS (localhost is also treated as a se
 
 ## Hosted PWA
 
-The repository builds the app as a GitHub Pages site at `https://parasaurpal.github.io/colornest-final/` after changes are merged to `main`. Pull requests run the production build without publishing it. The PWA uses the repository subpath as its install scope.
+The repository builds a production PWA artifact on every push and pull request. To publish it at `https://parasaurpal.github.io/colornest-final/`, enable **Settings → Pages → Build and deployment → GitHub Actions**, then add the Actions variable `ENABLE_GITHUB_PAGES=true`. Pull requests run the production build without publishing it. The PWA uses the repository subpath as its install scope.
 
 ## Google Drive setup
 

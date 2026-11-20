@@ -42,7 +42,7 @@ Restart the dev server or rebuild after changing the value. For GitHub Pages, ad
 
 ## Hosted app
 
-After the PWA pull request is merged into `main`, GitHub Actions builds and deploys the site to `https://parasaurpal.github.io/colornest-final/`. The first deployment may take a few minutes. Confirm GitHub Pages is enabled with **Build and deployment → GitHub Actions** in repository Settings.
+The PWA code is merged into `main`. To publish it, open repository **Settings → Pages**, choose **GitHub Actions** under Build and deployment, then open **Settings → Secrets and variables → Actions → Variables** and add `ENABLE_GITHUB_PAGES` with value `true`. The next push to `main` will deploy to `https://parasaurpal.github.io/colornest-final/`. Also add `VITE_GOOGLE_CLIENT_ID` there to enable Google Drive sync in the hosted build.
 
 ## Connect devices
 
