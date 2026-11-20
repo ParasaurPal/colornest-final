@@ -319,3 +319,31 @@ export async function checkRemoteState(fileId) {
     return 'exists-elsewhere';
   }
 }
+
+
+/** Find an app-owned file by name within a Drive folder. */
+export async function findFileByName(name, parentId) {
+  const q = `name = '${escapeQueryValue(name)}' and trashed = false and '${parentId}' in parents`;
+  const res = await driveFetch(`/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,parents,modifiedTime)&pageSize=10`);
+  const data = await res.json();
+  return data.files?.[0] || null;
+}
+
+/** Replace the content of an existing Drive file without changing its ID. */
+export async function updateFileContent(fileId, blob, mimeType) {
+  const token = await getAccessToken();
+  const res = await fetch(`${DRIVE_UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media&fields=id`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': mimeType },
+    body: blob,
+  });
+  if (res.status === 401) {
+    clearStoredToken();
+    throw new Error('Drive session expired — please reconnect Google Drive in Settings.');
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Drive update failed (${res.status}): ${detail.slice(0, 200)}`);
+  }
+  return res.json();
+}

@@ -169,6 +169,7 @@ export default function SettingsModal({ onClose }) {
     if (window.confirm("Remove all tags from every page? Titles, categories, favorites, and completion status will not change.")) {
       const allPages = await db.pages.toArray();
       await Promise.all(allPages.map(p => db.pages.update(p.id, { tags: [], updatedAt: Date.now() })));
+      await db.tags.clear();
       alert("All tags have been cleared.");
     }
   };

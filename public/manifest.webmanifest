@@ -3,8 +3,8 @@
   "name": "ColorNest",
   "short_name": "ColorNest",
   "description": "Your personal coloring-page library.",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone", "minimal-ui"],
   "orientation": "any",
@@ -12,6 +12,6 @@
   "theme_color": "#7c3aed",
   "categories": ["lifestyle", "education", "productivity"],
   "icons": [
-    { "src": "/icons/colornest.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "icons/colornest.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }

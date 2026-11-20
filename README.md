@@ -38,6 +38,10 @@ npm run preview
 
 The production site must be served over HTTPS (localhost is also treated as a secure context by browsers) for PWA installation, service workers, and Google sign-in.
 
+## Hosted PWA
+
+The repository builds the app as a GitHub Pages site at `https://parasaurpal.github.io/colornest-final/` after changes are merged to `main`. Pull requests run the production build without publishing it. The PWA uses the repository subpath as its install scope.
+
 ## Google Drive setup
 
 See [DRIVE_SETUP.md](DRIVE_SETUP.md). Set `VITE_GOOGLE_CLIENT_ID` to a Google OAuth **Web application** client ID before building. It is a public client identifier, not a secret. Never put a client secret in the browser app.

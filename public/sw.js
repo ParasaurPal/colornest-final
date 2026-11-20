@@ -1,5 +1,6 @@
 const CACHE_NAME = "colornest-shell-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/colornest.svg", "/pdf.worker.min.mjs"];
+const BASE_URL = new URL(self.registration.scope).pathname;
+const APP_SHELL = [BASE_URL, BASE_URL + "manifest.webmanifest", BASE_URL + "icons/colornest.svg", BASE_URL + "pdf.worker.min.mjs"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

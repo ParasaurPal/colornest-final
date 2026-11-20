@@ -23,7 +23,7 @@ Metadata conflict policy is last-write-wins using the page's update timestamp. K
 4. Create an OAuth client ID with application type **Web application**.
 5. Add authorized JavaScript origins for each place you run ColorNest, for example:
    - `http://localhost:5173` for local development.
-   - The exact HTTPS origin where you host the PWA.
+   - `https://parasaurpal.github.io` for the GitHub Pages deployment (the origin does not include `/colornest-final/`).
    No redirect URI is required for Google Identity Services token flow.
 6. Add these scopes to the consent configuration:
    - `https://www.googleapis.com/auth/drive.file`
@@ -38,7 +38,11 @@ Create a local `.env` file from `.env.example` and set:
 VITE_GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
 ```
 
-Restart the dev server or rebuild after changing the value. For a hosted build, configure the same value as the hosting provider's build-time environment variable.
+Restart the dev server or rebuild after changing the value. For GitHub Pages, add a repository Actions variable named `VITE_GOOGLE_CLIENT_ID` under **Settings → Secrets and variables → Actions → Variables**. The PWA build workflow injects that value at build time.
+
+## Hosted app
+
+After the PWA pull request is merged into `main`, GitHub Actions builds and deploys the site to `https://parasaurpal.github.io/colornest-final/`. The first deployment may take a few minutes. Confirm GitHub Pages is enabled with **Build and deployment → GitHub Actions** in repository Settings.
 
 ## Connect devices
 
