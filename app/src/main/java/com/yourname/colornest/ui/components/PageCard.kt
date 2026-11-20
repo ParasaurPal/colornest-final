@@ -2,7 +2,6 @@ package com.yourname.colornest.ui.components
 
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,8 +52,6 @@ import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.ui.theme.AccentPink
 import com.yourname.colornest.ui.theme.PurplePrimary
 import java.io.File
-
-private const val CLIP_STUDIO_PACKAGE = "jp.co.celsys.clipstudiopaint.googleplay"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -248,34 +245,6 @@ fun PageCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Open in Clip Studio Paint button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(PurplePrimary.copy(alpha = if (isDarkMode) 0.25f else 0.1f))
-                    .clickable { openInClipStudio(context, page.imageUrl) }
-                    .padding(vertical = 6.dp)
-                    .testTag("open_clip_studio_button_${page.id}"),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.OpenInNew,
-                    contentDescription = null,
-                    tint = PurplePrimary,
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Open in Clip Studio",
-                    color = PurplePrimary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
         }
     }
 }
@@ -299,36 +268,5 @@ private fun openImageExternally(context: Context, filePath: String) {
         context.startActivity(chooser)
     } catch (e: Exception) {
         // Fallback or ignore
-    }
-}
-
-// Share the page image directly to Clip Studio Paint. Whether Clip Studio
-// opens it as a new project or imports it depends on Clip Studio's own
-// handling of the shared image; this sends the standard share-to-app intent.
-private fun openInClipStudio(context: Context, filePath: String) {
-    try {
-        val file = File(filePath)
-        if (!file.exists()) return
-        val uri = FileProvider.getUriForFile(
-            context,
-            "com.yourname.colornest.fileprovider",
-            file
-        )
-        val clipIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "image/*"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            setPackage(CLIP_STUDIO_PACKAGE)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        if (clipIntent.resolveActivity(context.packageManager) != null) {
-            clipIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(clipIntent)
-        } else {
-            Toast.makeText(context, "Clip Studio Paint isn't installed", Toast.LENGTH_LONG).show()
-            openImageExternally(context, filePath)
-        }
-    } catch (e: Exception) {
-        Toast.makeText(context, "Clip Studio Paint isn't installed", Toast.LENGTH_LONG).show()
-        openImageExternally(context, filePath)
     }
 }
