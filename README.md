@@ -9,6 +9,7 @@
 * **🌙 Dark Mode & Line Inversion:** Night viewing mode with a custom color filter that inverts coloring lines to crisp white against a dark canvas.
 * **❤️ Favorites & Tags:** Mark favorites with instant heart toggles and filter by comma-separated tags or title search.
 * **🏷️ Tag Tools:** Filter the gallery to pages with no tags yet, or clear all tags at once from Settings.
+* **☁️ Google Drive Sync:** Back up pages to a `ColorNest` folder in Google Drive with one folder per category, mirroring the category tree. New and existing pages upload automatically, images you drop into the Drive folders are imported on open, and deletions only ever move files to the Drive trash. See [DRIVE_SETUP.md](DRIVE_SETUP.md) for the one-time setup.
 * **🚀 External Share / Open:** Secure `FileProvider` integration allows opening and sharing any coloring page directly with external digital painting or printing apps.
 * **🛡️ Privacy First & Danger Zone:** 100% on-device local storage powered by Android Room Database with a 4-step secure data erase workflow.
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { db } from './db';
+import { propagatePageChange } from './driveSync';
 
 export default function CategorizeModal({ page, categories, onClose }) {
   const [title, setTitle] = useState(page.title);
@@ -16,6 +17,9 @@ export default function CategorizeModal({ page, categories, onClose }) {
       isUncategorized: 0,
       tags: tagArray
     });
+
+    // Move/rename the Drive copy to match (no-op when not connected).
+    propagatePageChange(page.id);
 
     onClose();
   };

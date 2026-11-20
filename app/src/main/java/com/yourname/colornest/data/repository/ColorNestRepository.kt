@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.PrepopulateCategories
+import com.yourname.colornest.data.drive.DriveSyncManager
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.data.model.Setting
@@ -26,6 +27,10 @@ class ColorNestRepository(private val context: Context) {
     val pageDao = db.pageDao()
     val categoryDao = db.categoryDao()
     val settingDao = db.settingDao()
+
+    // Google Drive sync. All of its per-page calls are best-effort and never
+    // throw, so local edits always succeed even when offline.
+    val driveSync = DriveSyncManager(context, pageDao, categoryDao, settingDao)
 
     private val imagesDir: File by lazy {
         val dir = File(context.filesDir, "colornest")
@@ -59,6 +64,9 @@ class ColorNestRepository(private val context: Context) {
     }
 
     suspend fun deletePage(page: Page) = withContext(Dispatchers.IO) {
+        // Move the Drive copy to trash (never a permanent delete) and record
+        // a tombstone so a later scan does not re-download it.
+        driveSync.trashPageFile(page)
         val file = File(page.imageUrl)
         if (file.exists()) {
             file.delete()
@@ -80,13 +88,22 @@ class ColorNestRepository(private val context: Context) {
             tags = tags
         )
         pageDao.updatePage(updated)
+
+        // Move/rename the Drive copy to match the new title and category.
+        driveSync.propagatePageChange(updated)
     }
 
     suspend fun clearAllTags() = withContext(Dispatchers.IO) {
         pageDao.clearAllTags()
     }
 
-    suspend fun wipeAllData() = withContext(Dispatchers.IO) {
+    suspend fun wipeAllData(deleteCloud: Boolean = false) = withContext(Dispatchers.IO) {
+        // Trash the whole ColorNest folder in Drive first (trash only — the
+        // files stay recoverable from the Drive trash for 30 days). The local
+        // wipe below clears the stored Drive account too.
+        if (deleteCloud) {
+            driveSync.trashRootFolder()
+        }
         imagesDir.listFiles()?.forEach { it.delete() }
         pageDao.deleteAllPages()
         categoryDao.deleteAllCategories()

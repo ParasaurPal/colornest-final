@@ -1,5 +1,9 @@
 package com.yourname.colornest.ui.components
 
+import android.accounts.AccountManager
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,10 +56,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.google.android.gms.common.AccountPicker
 import com.yourname.colornest.ui.theme.AccentGreen
 import com.yourname.colornest.ui.theme.AccentRed
 import com.yourname.colornest.ui.theme.PurpleContainerLight
 import com.yourname.colornest.ui.theme.PurplePrimary
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsDialog(
@@ -69,11 +78,33 @@ fun SettingsDialog(
     onSetDeleteCloud: (Boolean) -> Unit,
     onSetConfirmText: (String) -> Unit,
     onWipeApp: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    driveConnected: Boolean = false,
+    driveAccountName: String? = null,
+    driveStatus: String? = null,
+    driveLastSync: Long? = null,
+    isSyncing: Boolean = false,
+    driveScanOnOpen: Boolean = true,
+    onDriveAccountSelected: (String) -> Unit = {},
+    onDriveDisconnect: () -> Unit = {},
+    onDriveSyncNow: () -> Unit = {},
+    onSetDriveScanOnOpen: (Boolean) -> Unit = {}
 ) {
     if (!isOpen) return
     var showFullAppGuide by remember { mutableStateOf(false) }
     var showClearTagsConfirm by remember { mutableStateOf(false) }
+
+    // Google account picker for Drive connect. The chosen account name is
+    // handed to the ViewModel; Drive itself is authorized by package name +
+    // signing certificate (see DRIVE_SETUP.md).
+    val accountPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val name = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (!name.isNullOrBlank()) onDriveAccountSelected(name)
+        }
+    }
 
     Dialog(onDismissRequest = onClose) {
         Surface(
@@ -142,7 +173,9 @@ fun SettingsDialog(
                             Text("Use the sun/moon control on the home screen to switch light and dark themes. Dark mode is intended for comfortable viewing and can display coloring line art with an inverted appearance where supported.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("6. Open or share a page", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("Use the page card's available open/share actions to send an image to a compatible drawing, printing, or sharing app. The receiving app controls its own editing and print settings.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("7. Troubleshooting and data safety", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("7. Google Drive sync", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Connect Google Drive in Settings to back up your pages. The app keeps a ColorNest folder in your Drive with one folder per category, mirroring your category tree; pages without a category go in Untagged. When the app opens it scans those folders for images you added yourself and imports them into the matching category. Moving a page to another category moves its Drive file, and renaming a page renames the file. Deleting a page moves its Drive file to the trash — sync never permanently deletes anything from Drive, and trashed files stay recoverable from the Drive trash for 30 days.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("8. Troubleshooting and data safety", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("If a page is missing, check All Pages, the selected category, and the search text. Keep separate backups of images you cannot replace. Erase All Images & Data permanently removes the app's local collection and settings after its confirmation steps; it cannot be undone.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -178,6 +211,117 @@ fun SettingsDialog(
                         } else {
                             Text("Load Default Categories", fontWeight = FontWeight.Bold)
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Google Drive sync card
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(PurpleContainerLight.copy(alpha = 0.35f))
+                        .padding(16.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Cloud, contentDescription = null, tint = PurplePrimary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Google Drive", fontWeight = FontWeight.Bold, color = PurplePrimary, fontSize = 15.sp)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (driveConnected) "Connected as $driveAccountName" else "Not connected",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (!driveConnected) {
+                        Text(
+                            text = "Connect to back up your pages to a ColorNest folder in Google Drive. Categories become folders, and images you drop in yourself are picked up automatically. One-time setup is required first — see DRIVE_SETUP.md in the project.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    driveLastSync?.let { lastSync ->
+                        Text(
+                            text = "Last synced " + SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date(lastSync)),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    driveStatus?.let { status ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = status,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (driveConnected) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = onDriveSyncNow,
+                                enabled = !isSyncing,
+                                colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f).testTag("drive_sync_now_button")
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Syncing…")
+                                } else {
+                                    Text("Sync now", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = onDriveDisconnect,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f).testTag("drive_disconnect_button")
+                            ) { Text("Disconnect") }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Scan Drive on open",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Switch(
+                                checked = driveScanOnOpen,
+                                onCheckedChange = onSetDriveScanOnOpen,
+                                modifier = Modifier.testTag("drive_scan_on_open_toggle")
+                            )
+                        }
+                        Text(
+                            text = "Check the Drive folders for images you added yourself each time the app opens.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Button(
+                            onClick = {
+                                accountPickerLauncher.launch(
+                                    AccountPicker.newChooseAccountIntent(
+                                        null, null, arrayOf("com.google"),
+                                        true, null, null, null, null
+                                    )
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("drive_connect_button")
+                        ) { Text("Connect Google Drive", fontWeight = FontWeight.Bold) }
                     }
                 }
 
@@ -287,8 +431,8 @@ fun SettingsDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
-                                    Text("Also wipe Cloud Folder", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text("Syncs deletion to Google Drive / iCloud", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Also move the Drive folder to trash", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Moves the ColorNest folder in Google Drive to trash (recoverable for 30 days)", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
 
@@ -316,15 +460,15 @@ fun SettingsDialog(
                             if (deleteCloud) {
                                 Icon(imageVector = Icons.Default.Cloud, contentDescription = null, tint = AccentRed, modifier = Modifier.size(48.dp))
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Text("Cloud Data Loss!", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = AccentRed)
+                                Text("Drive Folder Trashed!", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = AccentRed)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("You chose to wipe the cloud folder. This permanently deletes your cloud backups.", textAlign = TextAlign.Center, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("You chose to move the ColorNest folder in Google Drive to trash. The files stay recoverable from the Drive trash for 30 days; sync never permanently deletes anything.", textAlign = TextAlign.Center, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else {
                                 Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(48.dp))
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Text("Cloud Folder Safe", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text("Drive Folder Safe", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurface)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("You did not select to wipe cloud folder. Cloud backups remain intact.", textAlign = TextAlign.Center, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("You did not select the Drive folder. Your Google Drive backup remains intact.", textAlign = TextAlign.Center, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Spacer(modifier = Modifier.height(20.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

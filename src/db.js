@@ -2,9 +2,9 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('ColorNestDB');
 
-db.version(9).stores({
-  pages: '++id, title, categoryId, complexity, isFavorite, isCompleted, isUncategorized, *tags',
-  categories: '++id, name, parentId',
+db.version(10).stores({
+  pages: '++id, title, categoryId, complexity, isFavorite, isCompleted, isUncategorized, driveFileId, *tags',
+  categories: '++id, name, parentId, driveFolderId',
   settings: 'key'
 });
 

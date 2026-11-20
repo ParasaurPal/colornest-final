@@ -10,6 +10,7 @@ import Onboarding from './Onboarding'; // Import the new tutorial
 import { Capacitor } from '@capacitor/core';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { triggerBackgroundSync, deletePageWithDrive } from './driveSync';
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -38,6 +39,10 @@ function App() {
         setShowTutorial(true);
       }
     });
+
+    // Google Drive: scan the Drive folders in the background for images the
+    // user added themselves. No-op when Drive is not connected.
+    triggerBackgroundSync();
   }, []);
 
   const completeTutorial = async () => {
@@ -155,7 +160,7 @@ function App() {
             <div className="px-1 mt-2 flex flex-col flex-grow">
               <div className="flex justify-between items-start">
                 <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm leading-tight mb-1 line-clamp-2 pr-2">{page.title}</h3>
-                <button onClick={() => db.pages.delete(page.id)} className="text-gray-300 dark:text-gray-600 hover:text-red-500"><Trash2 size={14} /></button>
+                <button onClick={() => deletePageWithDrive(page)} className="text-gray-300 dark:text-gray-600 hover:text-red-500"><Trash2 size={14} /></button>
               </div>
               
               {page.tags && page.tags.length > 0 && (
