@@ -361,13 +361,17 @@ export async function syncDrive() {
     if (!remote) {
       // Not in the tree: trashed, deleted, or moved out by the user.
       const state = await checkRemoteState(driveId);
-      if (state === 'trashed' || state === 'gone') {
+      if (state === 'trashed') {
         await db.pages.delete(page.id);
         if (page.syncId) {
           const metadataFile = await findFileByName(pageMetadataName(page.syncId), rootId);
           if (metadataFile) await trashFile(metadataFile.id).catch(() => {});
         }
         removedLocal++;
+      } else if (state === 'gone') {
+        // A 404 can also mean this Drive account cannot access a file ID
+        // from an imported backup. Keep the local page and upload it again.
+        await db.pages.update(page.id, { driveFileId: null, updatedAt: Date.now() });
       }
       // 'exists-elsewhere': the user moved it out of the ColorNest tree;
       // leave the local page alone.

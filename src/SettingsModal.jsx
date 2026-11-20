@@ -11,6 +11,7 @@ import {
   isScanOnOpenEnabled,
   setScanOnOpenEnabled,
   getLastSyncMillis,
+  triggerBackgroundSync,
 } from './driveSync';
 
 export default function SettingsModal({ onClose }) {
@@ -118,8 +119,8 @@ export default function SettingsModal({ onClose }) {
         if (backup.pages.length) await db.pages.bulkAdd(backup.pages);
         if (Array.isArray(backup.tags) && backup.tags.length) await db.tags.bulkAdd(backup.tags);
       });
-      alert('Backup restored. ColorNest will reload your library.');
-      window.location.reload();
+      triggerBackgroundSync(true);
+      alert('Backup restored. Your library is ready on this device.');
     } catch (error) {
       alert('Backup restore failed: ' + error.message);
     } finally {
@@ -170,6 +171,7 @@ export default function SettingsModal({ onClose }) {
       const allPages = await db.pages.toArray();
       await Promise.all(allPages.map(p => db.pages.update(p.id, { tags: [], updatedAt: Date.now() })));
       await db.tags.clear();
+      triggerBackgroundSync(true);
       alert("All tags have been cleared.");
     }
   };
