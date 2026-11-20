@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from './db';
-import { propagatePageChange, triggerBackgroundSync } from './driveSync';
+import { triggerBackgroundSync } from './driveSync';
 
 export default function CategorizeModal({ page, categories, onClose }) {
   const [title, setTitle] = useState(page.title);
@@ -25,8 +25,7 @@ export default function CategorizeModal({ page, categories, onClose }) {
       }
     });
 
-    // Propagate edits to Drive when online; full metadata sync runs in background.
-    propagatePageChange(page.id);
+    // Full Drive sync propagates the image folder/name and page metadata.
     triggerBackgroundSync(true);
 
     onClose();

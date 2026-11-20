@@ -24,7 +24,7 @@ function App() {
   const [isTagBrowserOpen, setIsTagBrowserOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
-  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
+  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement || window.matchMedia('(display-mode: fullscreen)').matches));
 
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
@@ -46,7 +46,7 @@ function App() {
       event.preventDefault();
       setInstallPrompt(event);
     };
-    const updateFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    const updateFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement || window.matchMedia('(display-mode: fullscreen)').matches));
     window.addEventListener('beforeinstallprompt', captureInstall);
     document.addEventListener('fullscreenchange', updateFullscreen);
     return () => {
@@ -70,6 +70,7 @@ function App() {
 
   const toggleFullscreen = async () => {
     try {
+      if (window.matchMedia('(display-mode: fullscreen)').matches && !document.fullscreenElement) return;
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
     } catch (error) {
@@ -197,7 +198,7 @@ function App() {
           </div>
           <div className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
             {installPrompt && <button onClick={installApp} className="p-2 text-purple-600" aria-label="Install ColorNest" title="Install ColorNest"><Download size={19} /></button>}
-            <button onClick={toggleFullscreen} className="p-2" aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} title="Fullscreen">{isFullscreen ? <Minimize2 size={19} /> : <Maximize2 size={19} />}</button>
+            {!window.matchMedia('(display-mode: fullscreen)').matches && <button onClick={toggleFullscreen} className="p-2" aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} title="Fullscreen">{isFullscreen ? <Minimize2 size={19} /> : <Maximize2 size={19} />}</button>}
             <button onClick={() => setIsSettingsOpen(true)} className="p-2" aria-label="Settings"><Settings size={19} /></button>
             <button onClick={toggleTheme} className="p-2" aria-label="Toggle theme">{isDarkMode ? <Sun size={19} className="text-yellow-400" /> : <Moon size={19} />}</button>
           </div>
