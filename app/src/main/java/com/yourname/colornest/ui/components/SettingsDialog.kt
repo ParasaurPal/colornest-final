@@ -141,7 +141,7 @@ fun SettingsDialog(
                             Text("5. Appearance and viewing", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("Use the sun/moon control on the home screen to switch light and dark themes. Dark mode is intended for comfortable viewing and can display coloring line art with an inverted appearance where supported.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("6. Open or share a page", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Use the page card's available open/share actions to send an image to a compatible drawing, printing, or sharing app. The receiving app controls its own editing and print settings. Open in Clip Studio sends the image directly to Clip Studio Paint when it is installed.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Use the page card's available open/share actions to send an image to a compatible drawing, printing, or sharing app. The receiving app controls its own editing and print settings.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("7. Troubleshooting and data safety", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("If a page is missing, check All Pages, the selected category, and the search text. Keep separate backups of images you cannot replace. Erase All Images & Data permanently removes the app's local collection and settings after its confirmation steps; it cannot be undone.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
