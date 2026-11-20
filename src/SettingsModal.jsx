@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
-import { Filesystem, Directory } from '@capacitor/filesystem';
-import { Capacitor } from '@capacitor/core';
 import { isDriveConfigured } from './driveConfig';
 import { connectDrive, disconnectDrive, isDriveConnected, getDriveAccountEmail } from './driveService';
 import {
@@ -30,6 +28,8 @@ export default function SettingsModal({ onClose }) {
   const [driveLastSync, setDriveLastSync] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [driveScanOnOpen, setDriveScanOnOpen] = useState(true);
+  const [storageUsage, setStorageUsage] = useState(null);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   const refreshDriveState = async () => {
     setDriveConnected(isDriveConnected());
@@ -55,6 +55,77 @@ export default function SettingsModal({ onClose }) {
     })();
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const estimate = await navigator.storage?.estimate?.();
+        if (active && estimate) {
+          const used = estimate.usage || 0;
+          const quota = estimate.quota || 0;
+          setStorageUsage({ used, quota });
+        }
+        await navigator.storage?.persist?.();
+      } catch (error) {
+        console.info('Persistent browser storage is unavailable:', error);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const handleExportBackup = async () => {
+    setBackupBusy(true);
+    try {
+      const backup = {
+        format: 'ColorNest backup',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        pages: await db.pages.toArray(),
+        categories: await db.categories.toArray(),
+        tags: await db.tags.toArray(),
+      };
+      const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ColorNest-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Backup export failed: ' + error.message);
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const handleImportBackup = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!window.confirm('Restore this backup? This replaces the pages, categories, and tags currently stored in this browser. Export a backup of the current library first if you want to keep it.')) return;
+    setBackupBusy(true);
+    try {
+      const backup = JSON.parse(await file.text());
+      if (backup.format !== 'ColorNest backup' || !Array.isArray(backup.pages) || !Array.isArray(backup.categories)) {
+        throw new Error('This is not a valid ColorNest backup file.');
+      }
+      await db.transaction('rw', db.pages, db.categories, db.tags, async () => {
+        await db.pages.clear();
+        await db.categories.clear();
+        await db.tags.clear();
+        if (backup.categories.length) await db.categories.bulkAdd(backup.categories);
+        if (backup.pages.length) await db.pages.bulkAdd(backup.pages);
+        if (Array.isArray(backup.tags) && backup.tags.length) await db.tags.bulkAdd(backup.tags);
+      });
+      alert('Backup restored. ColorNest will reload your library.');
+      window.location.reload();
+    } catch (error) {
+      alert('Backup restore failed: ' + error.message);
+    } finally {
+      setBackupBusy(false);
+    }
+  };
 
   const handleDriveConnect = async () => {
     try {
@@ -97,7 +168,7 @@ export default function SettingsModal({ onClose }) {
   const handleClearAllTags = async () => {
     if (window.confirm("Remove all tags from every page? Titles, categories, favorites, and completion status will not change.")) {
       const allPages = await db.pages.toArray();
-      await Promise.all(allPages.map(p => db.pages.update(p.id, { tags: [] })));
+      await Promise.all(allPages.map(p => db.pages.update(p.id, { tags: [], updatedAt: Date.now() })));
       alert("All tags have been cleared.");
     }
   };
@@ -120,12 +191,6 @@ export default function SettingsModal({ onClose }) {
       // only — files stay recoverable from the Drive trash for 30 days).
       if (deleteCloud) {
         await trashRootFolder();
-      }
-
-      if (Capacitor.isNativePlatform()) {
-        try {
-          await Filesystem.rmdir({ path: 'colornest', directory: Directory.Data, recursive: true });
-        } catch (e) { console.log("Folder already empty."); }
       }
 
       await db.delete();
@@ -160,6 +225,16 @@ export default function SettingsModal({ onClose }) {
             <button onClick={handleSeedCategories} disabled={isSeeding} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold flex items-center justify-center gap-2">
               {isSeeding ? "Building Tree..." : "Load Default Categories"}
             </button>
+          </div>
+
+          <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
+            <h3 className="font-bold text-gray-800 dark:text-white mb-1">This device & backups</h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">ColorNest stores your pages in this browser's local database on this phone or computer. It works offline. Export a portable backup to move the whole library to another device.</p>
+            {storageUsage && <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Browser storage: {(storageUsage.used / 1048576).toFixed(1)} MB used of {(storageUsage.quota / 1048576).toFixed(0)} MB available (estimated).</p>}
+            <div className="flex gap-2">
+              <button onClick={handleExportBackup} disabled={backupBusy} className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{backupBusy ? 'Working…' : 'Export backup'}</button>
+              <label className="flex-1 text-center bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white py-2 rounded-lg font-bold cursor-pointer">Restore backup<input type="file" accept="application/json,.json" onChange={handleImportBackup} disabled={backupBusy} className="hidden" /></label>
+            </div>
           </div>
 
           <div className="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">

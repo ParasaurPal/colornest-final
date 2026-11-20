@@ -1,5 +1,5 @@
 const CACHE_NAME = "colornest-shell-v1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/colornest.svg"];
+const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/colornest.svg", "/pdf.worker.min.mjs"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

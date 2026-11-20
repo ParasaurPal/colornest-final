@@ -7,9 +7,6 @@ import SideMenu from './SideMenu';
 import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding';
-import { Capacitor } from '@capacitor/core';
-import { Share } from '@capacitor/share';
-import { Filesystem, Directory } from '@capacitor/filesystem';
 import { triggerBackgroundSync, deletePageWithDrive } from './driveSync';
 
 function App() {
@@ -21,7 +18,8 @@ function App() {
   const [activeCategoryId, setActiveCategoryId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showNoTagsOnly, setShowNoTagsOnly] = useState(false);
-  const [activeTag, setActiveTag] = useState(null);
+  const [activeTags, setActiveTags] = useState([]);
+  const [tagMatchMode, setTagMatchMode] = useState('all');
   const [isTagBrowserOpen, setIsTagBrowserOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -29,6 +27,7 @@ function App() {
 
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
+  const savedTags = useLiveQuery(() => db.tags.toArray());
 
   useEffect(() => {
     if (localStorage.getItem('theme') === 'dark') {
@@ -39,6 +38,8 @@ function App() {
       if (!setting || !setting.value) setShowTutorial(true);
     });
     triggerBackgroundSync();
+    const retryDriveSync = () => { if (navigator.onLine) triggerBackgroundSync(true); };
+    window.addEventListener('online', retryDriveSync);
 
     const captureInstall = (event) => {
       event.preventDefault();
@@ -48,6 +49,7 @@ function App() {
     window.addEventListener('beforeinstallprompt', captureInstall);
     document.addEventListener('fullscreenchange', updateFullscreen);
     return () => {
+      window.removeEventListener('online', retryDriveSync);
       window.removeEventListener('beforeinstallprompt', captureInstall);
       document.removeEventListener('fullscreenchange', updateFullscreen);
     };
@@ -81,22 +83,13 @@ function App() {
     setInstallPrompt(null);
   };
 
-  const openExternal = async (base64Image) => {
-    if (!Capacitor.isNativePlatform()) {
+  const openExternal = (imageUrl) => {
+    const opened = window.open(imageUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
       const link = document.createElement('a');
-      link.href = base64Image;
-      link.target = '_blank';
-      link.rel = 'noopener';
+      link.href = imageUrl;
+      link.download = 'coloring-page';
       link.click();
-      return;
-    }
-    try {
-      const base64Data = base64Image.split(',')[1];
-      const fileName = `coloring_page_${Date.now()}.jpg`;
-      const result = await Filesystem.writeFile({ path: fileName, data: base64Data, directory: Directory.Cache });
-      await Share.share({ title: 'Open Coloring Page', url: result.uri, dialogTitle: 'Choose an app to open this image' });
-    } catch (error) {
-      alert('Error opening file: ' + error.message);
     }
   };
 
@@ -109,20 +102,63 @@ function App() {
   };
 
   const tagCounts = useMemo(() => {
-    const counts = new Map();
+    const counts = new Map((savedTags || []).map(tag => [tag.name, 0]));
     (pages || []).forEach(page => (page.tags || []).forEach(tag => {
       const normalized = String(tag).trim();
       if (normalized) counts.set(normalized, (counts.get(normalized) || 0) + 1);
     }));
     return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [pages]);
+  }, [pages, savedTags]);
+
+  const createTag = async () => {
+    const name = window.prompt('Name the new tag:')?.trim();
+    if (!name) return;
+    try { await db.tags.add({ name, createdAt: Date.now() }); }
+    catch { alert('That tag already exists.'); }
+  };
+
+  const renameTag = async (oldName) => {
+    const newName = window.prompt(`Rename "${oldName}" to:`, oldName)?.trim();
+    if (!newName || newName === oldName) return;
+    const existing = await db.tags.where('name').equals(newName).first();
+    if (existing && !window.confirm(`"${newName}" already exists. Merge "${oldName}" into it?`)) return;
+    await db.transaction('rw', db.pages, db.tags, async () => {
+      await db.pages.toCollection().modify(page => {
+        if ((page.tags || []).includes(oldName)) {
+          page.tags = [...new Set(page.tags.map(tag => tag === oldName ? newName : tag))];
+          page.updatedAt = Date.now();
+        }
+      });
+      const oldTag = await db.tags.where('name').equals(oldName).first();
+      if (oldTag) await db.tags.delete(oldTag.id);
+      if (!existing) await db.tags.add({ name: newName, createdAt: Date.now() });
+    });
+    setActiveTags(tags => tags.map(tag => tag === oldName ? newName : tag));
+    triggerBackgroundSync(true);
+  };
+
+  const deleteTag = async (name) => {
+    if (!window.confirm(`Delete the tag "${name}" from the library and all pages?`)) return;
+    await db.transaction('rw', db.pages, db.tags, async () => {
+      await db.pages.toCollection().modify(page => {
+        if ((page.tags || []).includes(name)) {
+          page.tags = page.tags.filter(tag => tag !== name);
+          page.updatedAt = Date.now();
+        }
+      });
+      const row = await db.tags.where('name').equals(name).first();
+      if (row) await db.tags.delete(row.id);
+    });
+    setActiveTags(tags => tags.filter(tag => tag !== name));
+    triggerBackgroundSync(true);
+  };
 
   const filteredPages = (pages || []).filter(page => {
     if (activeCategoryId !== null) {
       const validIds = getCategoryAndChildren(activeCategoryId, categories || []);
       if (!validIds.includes(page.categoryId)) return false;
     }
-    if (activeTag && !(page.tags || []).includes(activeTag)) return false;
+    if (activeTags.length && (tagMatchMode === 'all' ? !activeTags.every(tag => (page.tags || []).includes(tag)) : !activeTags.some(tag => (page.tags || []).includes(tag)))) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchTitle = (page.title || '').toLowerCase().includes(q);
@@ -147,7 +183,7 @@ function App() {
             <button onClick={() => setIsMenuOpen(true)} className="p-2 -ml-2 text-gray-600 dark:text-gray-300" aria-label="Open collections"><Menu size={24} /></button>
             <div>
               <h1 className="text-xl font-bold text-gray-800 dark:text-white leading-tight">ColorNest</h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{activeTag ? `Tag: ${activeTag}` : activeCategoryId ? categories?.find(c => c.id === activeCategoryId)?.name : 'All Pages'}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{activeTags.length ? `Tags: ${activeTags.join(', ')}` : activeCategoryId ? categories?.find(c => c.id === activeCategoryId)?.name : 'All Pages'}</p>
             </div>
           </div>
           <div className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
@@ -165,28 +201,33 @@ function App() {
           <button onClick={() => setIsTagBrowserOpen(value => !value)} className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 ${isTagBrowserOpen ? 'bg-purple-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
             <Tags size={13} /> Browse tags ({tagCounts.length})
           </button>
-          <button onClick={() => { setShowNoTagsOnly(value => !value); setActiveTag(null); }} className={`px-3 py-1.5 rounded-full text-xs font-bold ${showNoTagsOnly ? 'bg-purple-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
+          <button onClick={() => { setShowNoTagsOnly(value => !value); setActiveTags([]); }} className={`px-3 py-1.5 rounded-full text-xs font-bold ${showNoTagsOnly ? 'bg-purple-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
             Untagged
           </button>
-          {(activeTag || activeCategoryId !== null || searchQuery || showNoTagsOnly) && (
-            <button onClick={() => { setActiveTag(null); setActiveCategoryId(null); setSearchQuery(''); setShowNoTagsOnly(false); }} className="p-1.5 text-gray-500" aria-label="Clear filters"><X size={16} /></button>
+          {(activeTags.length || activeCategoryId !== null || searchQuery || showNoTagsOnly) && (
+            <button onClick={() => { setActiveTags([]); setActiveCategoryId(null); setSearchQuery(''); setShowNoTagsOnly(false); }} className="p-1.5 text-gray-500" aria-label="Clear filters"><X size={16} /></button>
           )}
         </div>
         {isTagBrowserOpen && (
           <section className="rounded-xl border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800/80">
             <div className="flex justify-between items-center mb-2">
-              <h2 className="text-sm font-bold text-gray-800 dark:text-white">All tags</h2>
-              <button onClick={() => setActiveTag(null)} className="text-xs text-purple-600 dark:text-purple-300">Clear tag</button>
+              <div><h2 className="text-sm font-bold text-gray-800 dark:text-white">All tags</h2><p className="text-[11px] text-gray-500 dark:text-gray-400">Select multiple tags to combine filters.</p></div>
+              <div className="flex items-center gap-2"><button onClick={createTag} className="text-xs font-bold text-purple-600 dark:text-purple-300">+ New tag</button><button onClick={() => setActiveTags([])} className="text-xs text-gray-500">Clear</button></div>
             </div>
             {tagCounts.length ? (
               <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
                 {tagCounts.map(([tag, count]) => (
-                  <button key={tag} onClick={() => { setActiveTag(activeTag === tag ? null : tag); setShowNoTagsOnly(false); }} className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold ${activeTag === tag ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600'}`}>
-                    {tag} <span className="opacity-70">({count})</span>
-                  </button>
+                  <div key={tag} className="flex items-center rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600">
+                    <button onClick={() => { setActiveTags(current => current.includes(tag) ? current.filter(item => item !== tag) : [...current, tag]); setShowNoTagsOnly(false); }} className={`px-2.5 py-1.5 text-xs font-semibold ${activeTags.includes(tag) ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200'}`}>
+                      {tag} <span className="opacity-70">({count})</span>
+                    </button>
+                    <button onClick={() => renameTag(tag)} className="px-1.5 py-1.5 text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500" title={`Rename ${tag}`}>✎</button>
+                    <button onClick={() => deleteTag(tag)} className="px-1.5 py-1.5 text-[10px] bg-gray-100 dark:bg-gray-800 text-red-500" title={`Delete ${tag}`}>×</button>
+                  </div>
                 ))}
               </div>
-            ) : <p className="text-xs text-gray-500 dark:text-gray-400">Tags you add to pages will appear here.</p>}
+            ) : <p className="text-xs text-gray-500 dark:text-gray-400">Create a tag or add tags while editing a coloring page.</p>}
+            <div className="flex items-center gap-2 mt-3 text-xs text-gray-600 dark:text-gray-300"><span>Match:</span><button onClick={() => setTagMatchMode('all')} className={`px-2 py-1 rounded ${tagMatchMode === 'all' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700'}`}>All selected</button><button onClick={() => setTagMatchMode('any')} className={`px-2 py-1 rounded ${tagMatchMode === 'any' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700'}`}>Any selected</button></div>
           </section>
         )}
       </header>
@@ -196,7 +237,7 @@ function App() {
           <article key={page.id} className="bg-white dark:bg-gray-800 rounded-[24px] p-2 pb-3 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col relative">
             <div className="relative h-40 bg-gray-50 dark:bg-gray-900 rounded-[18px] overflow-hidden">
               <img src={page.imageUrl} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
-              <button onClick={() => db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1 })} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
+              <button onClick={() => { db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); triggerBackgroundSync(true); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
                 <Heart size={13} fill={page.isFavorite === 1 ? '#ec4899' : 'none'} color={page.isFavorite === 1 ? '#ec4899' : '#9ca3af'} />
               </button>
               {page.isUncategorized === 1 && <button onClick={() => setCategorizingPage(page)} className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white font-bold opacity-0 hover:opacity-100 transition-opacity">Edit Details</button>}
@@ -206,7 +247,7 @@ function App() {
                 <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm leading-tight mb-1 line-clamp-2 pr-2">{page.title}</h3>
                 <button onClick={() => deletePageWithDrive(page)} className="text-gray-300 dark:text-gray-600 hover:text-red-500" aria-label="Delete page"><Trash2 size={14} /></button>
               </div>
-              {!!page.tags?.length && <div className="flex flex-wrap gap-1 mb-2">{page.tags.map(tag => <button key={tag} onClick={() => setActiveTag(tag)} className="text-[9px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded">{tag}</button>)}</div>}
+              {!!page.tags?.length && <div className="flex flex-wrap gap-1 mb-2">{page.tags.map(tag => <button key={tag} onClick={() => setActiveTags(current => current.includes(tag) ? current.filter(item => item !== tag) : [...current, tag])} className="text-[9px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded">{tag}</button>)}</div>}
               <button onClick={() => openExternal(page.imageUrl)} className="mt-auto w-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
                 <ExternalLink size={12} /> Open Page
               </button>

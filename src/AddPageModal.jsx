@@ -3,8 +3,6 @@ import imageCompression from 'browser-image-compression';
 import { db } from './db';
 import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { convertPdfToImages } from './pdfConverter';
-import { Filesystem, Directory } from '@capacitor/filesystem';
-import { Capacitor } from '@capacitor/core';
 import { triggerBackgroundSync } from './driveSync';
 
 export default function AddPageModal({ isOpen, onClose }) {
@@ -14,27 +12,15 @@ export default function AddPageModal({ isOpen, onClose }) {
 
   if (!isOpen) return null;
 
-  const saveImageToDevice = async (base64Data, fileName) => {
-    if (Capacitor.isNativePlatform()) {
-      const savedFile = await Filesystem.writeFile({
-        path: `colornest/${fileName}`,
-        data: base64Data.split(',')[1],
-        directory: Directory.Data,
-        recursive: true
-      });
-      return Capacitor.convertFileSrc(savedFile.uri);
-    }
-    return base64Data; 
-  };
+  const saveImageToDevice = async (base64Data) => base64Data;
 
   const savePageToDb = async (base64Data, title = "Untitled page") => {
-    const fileName = `img_${Date.now()}_${Math.floor(Math.random()*1000)}.jpg`;
-    const finalImageUrl = await saveImageToDevice(base64Data, fileName);
+    const finalImageUrl = await saveImageToDevice(base64Data);
 
     await db.pages.add({
       title: title, categoryId: null, complexity: "Beginner", time: "TBD", tool: "TBD",
       imageUrl: finalImageUrl, isFavorite: 0, isCompleted: 0, progress: 0, isUncategorized: 1,
-      tags: []
+      tags: [], syncId: globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`, updatedAt: Date.now()
     });
   };
 
@@ -97,7 +83,7 @@ export default function AddPageModal({ isOpen, onClose }) {
       setProgressPercent(100);
       // Upload the new pages to Google Drive in the background
       // (no-op when Drive is not connected).
-      triggerBackgroundSync();
+      triggerBackgroundSync(true);
       setTimeout(() => {
         setIsProcessing(false);
         onClose();
