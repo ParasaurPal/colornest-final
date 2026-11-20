@@ -20,6 +20,7 @@ function App() {
   const [showNoTagsOnly, setShowNoTagsOnly] = useState(false);
   const [activeTags, setActiveTags] = useState([]);
   const [tagMatchMode, setTagMatchMode] = useState('all');
+  const [sortBy, setSortBy] = useState('recent');
   const [isTagBrowserOpen, setIsTagBrowserOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -169,6 +170,14 @@ function App() {
     return true;
   });
 
+  const sortedPages = [...filteredPages].sort((a, b) => {
+    if (sortBy === 'title-asc') return (a.title || '').localeCompare(b.title || '');
+    if (sortBy === 'title-desc') return (b.title || '').localeCompare(a.title || '');
+    if (sortBy === 'favorites') return Number(b.isFavorite || 0) - Number(a.isFavorite || 0);
+    if (sortBy === 'oldest') return Number(a.updatedAt || 0) - Number(b.updatedAt || 0);
+    return Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+  });
+
   return (
     <div className="min-h-screen bg-[#F8F9FA] dark:bg-[#121212] font-sans pb-10 transition-colors duration-300">
       {showTutorial && <Onboarding onComplete={completeTutorial} />}
@@ -232,15 +241,26 @@ function App() {
         )}
       </header>
 
-      <main className="px-4 mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        {filteredPages.map(page => (
+      <div className="px-4 mt-4">        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-gray-500 dark:text-gray-400">{sortedPages.length} pages</span>
+          <select value={sortBy} onChange={event => setSortBy(event.target.value)} aria-label="Sort coloring pages" className="text-xs rounded-lg px-2 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700">
+            <option value="recent">Recently updated</option>
+            <option value="oldest">Oldest updated</option>
+            <option value="title-asc">Title A–Z</option>
+            <option value="title-desc">Title Z–A</option>
+            <option value="favorites">Favorites first</option>
+          </select>
+        </div>
+      </div>
+      <main className="px-4 mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        {sortedPages.map(page => (
           <article key={page.id} className="bg-white dark:bg-gray-800 rounded-[24px] p-2 pb-3 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col relative">
             <div className="relative h-40 bg-gray-50 dark:bg-gray-900 rounded-[18px] overflow-hidden">
               <img src={page.imageUrl} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
-              <button onClick={() => { db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); triggerBackgroundSync(true); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
+              <button onClick={async () => { await db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); triggerBackgroundSync(true); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
                 <Heart size={13} fill={page.isFavorite === 1 ? '#ec4899' : 'none'} color={page.isFavorite === 1 ? '#ec4899' : '#9ca3af'} />
               </button>
-              {page.isUncategorized === 1 && <button onClick={() => setCategorizingPage(page)} className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white font-bold opacity-0 hover:opacity-100 transition-opacity">Edit Details</button>}
+              <button onClick={() => setCategorizingPage(page)} className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white font-bold opacity-0 hover:opacity-100 focus:opacity-100 transition-opacity">Edit Details</button>
             </div>
             <div className="px-1 mt-2 flex flex-col flex-grow">
               <div className="flex justify-between items-start">
