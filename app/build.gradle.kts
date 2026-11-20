@@ -45,6 +45,19 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        resources {
+            // Several Google client jars each ship META-INF/DEPENDENCIES
+            // (plus license/notice files); the APK packager rejects
+            // duplicate paths, so drop these metadata files.
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/LICENSE"
+            excludes += "META-INF/LICENSE.txt"
+            excludes += "META-INF/NOTICE"
+            excludes += "META-INF/NOTICE.txt"
+        }
+    }
 }
 
 dependencies {
@@ -73,5 +86,16 @@ dependencies {
     // Google Drive sync (account picker + Drive API client)
     implementation(libs.play.services.auth)
     implementation(libs.google.api.client.android)
-    implementation(libs.google.api.services.drive)
+    implementation(libs.google.api.services.drive) {
+        // google-api-client (pulled in by the Drive client) depends on
+        // Apache HttpClient (httpclient/httpcore) and the Apache-based
+        // transport (google-http-client-apache-v2). Android already
+        // provides org.apache.http classes, so those jars break the
+        // build (DuplicatePlatformClasses / dex conflicts). The app
+        // uses AndroidHttp (HttpURLConnection) and never the Apache
+        // transport, so excluding them is safe.
+        exclude(group = "org.apache.httpcomponents")
+        exclude(group = "com.google.http-client", module = "google-http-client-apache-v2")
+        exclude(group = "commons-logging", module = "commons-logging")
+    }
 }
