@@ -18,6 +18,7 @@ const GIS_SCRIPT = 'https://accounts.google.com/gsi/client';
 const LS_TOKEN = 'colornest_drive_token';
 const LS_TOKEN_EXPIRY = 'colornest_drive_token_expiry';
 const LS_ACCOUNT_EMAIL = 'colornest_drive_account';
+const LS_CONNECTED = 'colornest_drive_connected';
 
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 
@@ -71,6 +72,7 @@ function storeToken(response) {
   const expiresAt = Date.now() + (response.expires_in || 3600) * 1000;
   localStorage.setItem(LS_TOKEN, response.access_token);
   localStorage.setItem(LS_TOKEN_EXPIRY, String(expiresAt));
+  localStorage.setItem(LS_CONNECTED, '1');
 }
 
 function clearStoredToken() {
@@ -132,6 +134,7 @@ export async function disconnectDrive() {
   const token = localStorage.getItem(LS_TOKEN);
   clearStoredToken();
   localStorage.removeItem(LS_ACCOUNT_EMAIL);
+  localStorage.removeItem(LS_CONNECTED);
   if (token) {
     try {
       await fetch(`https://oauth2.googleapis.com/revoke?token=${token}`, { method: 'POST' });
@@ -142,7 +145,7 @@ export async function disconnectDrive() {
 }
 
 export function isDriveConnected() {
-  return getStoredToken() !== null;
+  return localStorage.getItem(LS_CONNECTED) === '1' || getStoredToken() !== null;
 }
 
 export function getDriveAccountEmail() {
