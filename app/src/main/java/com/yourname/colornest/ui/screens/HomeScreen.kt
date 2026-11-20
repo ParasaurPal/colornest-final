@@ -317,7 +317,17 @@ fun HomeScreen(
         onSetDeleteCloud = { viewModel.setDeleteCloud(it) },
         onSetConfirmText = { viewModel.setConfirmDeleteText(it) },
         onWipeApp = { viewModel.wipeApp() },
-        onClose = { viewModel.setSettingsOpen(false) }
+        onClose = { viewModel.setSettingsOpen(false) },
+        driveConnected = uiState.driveConnected,
+        driveAccountName = uiState.driveAccountName,
+        driveStatus = uiState.driveStatus,
+        driveLastSync = uiState.driveLastSync,
+        isSyncing = uiState.isSyncing,
+        driveScanOnOpen = uiState.driveScanOnOpen,
+        onDriveAccountSelected = { viewModel.connectDrive(it) },
+        onDriveDisconnect = { viewModel.disconnectDrive() },
+        onDriveSyncNow = { viewModel.syncDriveNow() },
+        onSetDriveScanOnOpen = { viewModel.setDriveScanOnOpen(it) }
     )
 
     // Onboarding Tutorial Dialog

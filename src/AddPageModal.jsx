@@ -5,6 +5,7 @@ import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { convertPdfToImages } from './pdfConverter';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
+import { triggerBackgroundSync } from './driveSync';
 
 export default function AddPageModal({ isOpen, onClose }) {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -94,6 +95,9 @@ export default function AddPageModal({ isOpen, onClose }) {
       }
       
       setProgressPercent(100);
+      // Upload the new pages to Google Drive in the background
+      // (no-op when Drive is not connected).
+      triggerBackgroundSync();
       setTimeout(() => {
         setIsProcessing(false);
         onClose();

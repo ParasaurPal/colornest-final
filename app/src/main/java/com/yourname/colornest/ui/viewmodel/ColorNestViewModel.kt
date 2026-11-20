@@ -33,7 +33,13 @@ data class UiState(
     val showNoTagsOnly: Boolean = false,
     val wipeStep: Int = 0,
     val deleteCloud: Boolean = false,
-    val confirmDeleteText: String = ""
+    val confirmDeleteText: String = "",
+    val driveConnected: Boolean = false,
+    val driveAccountName: String? = null,
+    val driveStatus: String? = null,
+    val driveLastSync: Long? = null,
+    val isSyncing: Boolean = false,
+    val driveScanOnOpen: Boolean = true
 )
 
 class ColorNestViewModel(application: Application) : AndroidViewModel(application) {
@@ -55,6 +61,12 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     private val _wipeStep = MutableStateFlow(0)
     private val _deleteCloud = MutableStateFlow(false)
     private val _confirmDeleteText = MutableStateFlow("")
+    private val _driveConnected = MutableStateFlow(false)
+    private val _driveAccountName = MutableStateFlow<String?>(null)
+    private val _driveStatus = MutableStateFlow<String?>(null)
+    private val _driveLastSync = MutableStateFlow<Long?>(null)
+    private val _isSyncing = MutableStateFlow(false)
+    private val _driveScanOnOpen = MutableStateFlow(true)
 
     val pagesFlow = repository.getAllPagesFlow()
     val categoriesFlow = repository.getAllCategoriesFlow()
@@ -69,6 +81,13 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             val theme = repository.getSetting("theme")
             if (theme == "dark") {
                 _isDarkMode.value = true
+            }
+
+            // Google Drive: restore connection state, then scan in the
+            // background on open when enabled.
+            refreshDriveState()
+            if (_driveScanOnOpen.value && _driveConnected.value) {
+                syncDriveNow()
             }
         }
     }
@@ -91,7 +110,13 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _showNoTagsOnly,
         _wipeStep,
         _deleteCloud,
-        _confirmDeleteText
+        _confirmDeleteText,
+        _driveConnected,
+        _driveAccountName,
+        _driveStatus,
+        _driveLastSync,
+        _isSyncing,
+        _driveScanOnOpen
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val pages = args[0] as List<Page>
@@ -113,6 +138,12 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         val wipeSt = args[15] as Int
         val delCloud = args[16] as Boolean
         val confText = args[17] as String
+        val drvConnected = args[18] as Boolean
+        val drvAccount = args[19] as String?
+        val drvStatus = args[20] as String?
+        val drvLastSync = args[21] as Long?
+        val syncing = args[22] as Boolean
+        val drvScanOnOpen = args[23] as Boolean
 
         val filtered = filterPages(pages, categories, activeCatId, query, noTagsOnly)
 
@@ -135,7 +166,13 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             showNoTagsOnly = noTagsOnly,
             wipeStep = wipeSt,
             deleteCloud = delCloud,
-            confirmDeleteText = confText
+            confirmDeleteText = confText,
+            driveConnected = drvConnected,
+            driveAccountName = drvAccount,
+            driveStatus = drvStatus,
+            driveLastSync = drvLastSync,
+            isSyncing = syncing,
+            driveScanOnOpen = drvScanOnOpen
         )
     }.stateIn(
         viewModelScope,
@@ -250,11 +287,62 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     fun wipeApp() {
         if (_confirmDeleteText.value != "DELETE") return
         viewModelScope.launch {
-            repository.wipeAllData()
+            repository.wipeAllData(deleteCloud = _deleteCloud.value)
             _wipeStep.value = 0
             _confirmDeleteText.value = ""
             _deleteCloud.value = false
             _isSettingsOpen.value = false
+            refreshDriveState()
+        }
+    }
+
+    // ---------- Google Drive sync ----------
+
+    private suspend fun refreshDriveState() {
+        _driveConnected.value = repository.driveSync.isConnected()
+        _driveAccountName.value = repository.driveSync.getAccountName()
+        _driveLastSync.value = repository.driveSync.getLastSyncMillis()
+        _driveScanOnOpen.value = repository.driveSync.isScanOnOpenEnabled()
+    }
+
+    fun connectDrive(accountName: String) {
+        viewModelScope.launch {
+            repository.driveSync.connect(accountName)
+            refreshDriveState()
+            _driveStatus.value = "Connected — starting first sync…"
+            syncDriveNow()
+        }
+    }
+
+    fun disconnectDrive() {
+        viewModelScope.launch {
+            repository.driveSync.disconnect()
+            _driveStatus.value = "Disconnected from Google Drive"
+            refreshDriveState()
+        }
+    }
+
+    fun setDriveScanOnOpen(enabled: Boolean) {
+        _driveScanOnOpen.value = enabled
+        viewModelScope.launch {
+            repository.driveSync.setScanOnOpenEnabled(enabled)
+        }
+    }
+
+    fun syncDriveNow() {
+        if (_isSyncing.value) return
+        viewModelScope.launch {
+            _isSyncing.value = true
+            _driveStatus.value = "Syncing with Google Drive…"
+            try {
+                val result = repository.driveSync.sync()
+                _driveStatus.value = result.summary()
+            } catch (e: Exception) {
+                _driveStatus.value = "Sync failed: ${e.message?.take(120) ?: "unknown error"}"
+            } finally {
+                _driveLastSync.value = repository.driveSync.getLastSyncMillis()
+                _isSyncing.value = false
+            }
         }
     }
 

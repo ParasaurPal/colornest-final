@@ -18,5 +18,7 @@ data class Page(
     val progress: Int = 0,
     val isUncategorized: Boolean = true,
     val tags: List<String> = emptyList(),
+    // Google Drive file ID of the uploaded copy of this page (null = not uploaded yet).
+    val driveFileId: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )

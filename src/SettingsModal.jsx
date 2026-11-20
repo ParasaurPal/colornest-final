@@ -1,9 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
+import { isDriveConfigured } from './driveConfig';
+import { connectDrive, disconnectDrive, isDriveConnected, getDriveAccountEmail } from './driveService';
+import {
+  syncDrive,
+  formatSyncSummary,
+  trashRootFolder,
+  isScanOnOpenEnabled,
+  setScanOnOpenEnabled,
+  getLastSyncMillis,
+} from './driveSync';
 
 export default function SettingsModal({ onClose }) {
   const [isSeeding, setIsSeeding] = useState(false);
@@ -12,6 +22,77 @@ export default function SettingsModal({ onClose }) {
   const [wipeStep, setWipeStep] = useState(0);
   const [confirmText, setConfirmText] = useState("");
   const [deleteCloud, setDeleteCloud] = useState(false);
+
+  // Google Drive State
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [driveAccount, setDriveAccount] = useState(null);
+  const [driveStatus, setDriveStatus] = useState(null);
+  const [driveLastSync, setDriveLastSync] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [driveScanOnOpen, setDriveScanOnOpen] = useState(true);
+
+  const refreshDriveState = async () => {
+    setDriveConnected(isDriveConnected());
+    setDriveAccount(getDriveAccountEmail());
+    setDriveLastSync(await getLastSyncMillis());
+    setDriveScanOnOpen(await isScanOnOpenEnabled());
+  };
+
+  // Load the Drive state when the modal opens. The reads are async (Dexie),
+  // so they resolve in a callback rather than during render.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const connected = isDriveConnected();
+      const account = getDriveAccountEmail();
+      const lastSync = await getLastSyncMillis();
+      const scanOnOpen = await isScanOnOpenEnabled();
+      if (!active) return;
+      setDriveConnected(connected);
+      setDriveAccount(account);
+      setDriveLastSync(lastSync);
+      setDriveScanOnOpen(scanOnOpen);
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const handleDriveConnect = async () => {
+    try {
+      setDriveStatus("Connecting…");
+      await connectDrive();
+      await refreshDriveState();
+      setDriveStatus("Connected — starting first sync…");
+      handleDriveSyncNow();
+    } catch (e) {
+      setDriveStatus("Could not connect: " + e.message);
+    }
+  };
+
+  const handleDriveDisconnect = async () => {
+    await disconnectDrive();
+    await refreshDriveState();
+    setDriveStatus("Disconnected from Google Drive");
+  };
+
+  const handleDriveSyncNow = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setDriveStatus("Syncing with Google Drive…");
+    try {
+      const result = await syncDrive();
+      setDriveStatus(formatSyncSummary(result));
+    } catch (e) {
+      setDriveStatus("Sync failed: " + e.message.slice(0, 120));
+    } finally {
+      setDriveLastSync(await getLastSyncMillis());
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDriveScanToggle = async (enabled) => {
+    setDriveScanOnOpen(enabled);
+    await setScanOnOpenEnabled(enabled);
+  };
 
   const handleClearAllTags = async () => {
     if (window.confirm("Remove all tags from every page? Titles, categories, favorites, and completion status will not change.")) {
@@ -35,6 +116,12 @@ export default function SettingsModal({ onClose }) {
     if (confirmText !== "DELETE") return;
 
     try {
+      // Move the ColorNest folder in Google Drive to trash first (trash
+      // only — files stay recoverable from the Drive trash for 30 days).
+      if (deleteCloud) {
+        await trashRootFolder();
+      }
+
       if (Capacitor.isNativePlatform()) {
         try {
           await Filesystem.rmdir({ path: 'colornest', directory: Directory.Data, recursive: true });
@@ -75,6 +162,53 @@ export default function SettingsModal({ onClose }) {
             </button>
           </div>
 
+          <div className="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
+            <h3 className="font-bold text-purple-800 dark:text-purple-300 flex items-center gap-2 mb-2">
+              <Cloud size={18} /> Google Drive
+            </h3>
+            <p className="text-sm font-bold text-gray-800 dark:text-white">
+              {driveConnected
+                ? `Connected${driveAccount ? ` as ${driveAccount}` : ''}`
+                : 'Not connected'}
+            </p>
+            {!driveConnected && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 mb-2">
+                {isDriveConfigured()
+                  ? 'Connect to back up your pages to a ColorNest folder in Google Drive. Categories become folders, and images you drop in yourself are picked up automatically.'
+                  : 'Google Drive is not set up yet — add your Web OAuth client ID to a .env file first (see DRIVE_SETUP.md in the project).'}
+              </p>
+            )}
+            {driveLastSync && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                Last synced {new Date(driveLastSync).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </p>
+            )}
+            {driveStatus && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{driveStatus}</p>
+            )}
+            {driveConnected ? (
+              <>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={handleDriveSyncNow} disabled={isSyncing} className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">
+                    {isSyncing ? 'Syncing…' : 'Sync now'}
+                  </button>
+                  <button onClick={handleDriveDisconnect} className="flex-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white py-2 rounded-lg font-bold">
+                    Disconnect
+                  </button>
+                </div>
+                <label className="flex items-center gap-3 mt-3 cursor-pointer">
+                  <input type="checkbox" checked={driveScanOnOpen} onChange={(e) => handleDriveScanToggle(e.target.checked)} className="w-5 h-5 accent-purple-600" />
+                  <span className="text-sm font-bold text-gray-800 dark:text-white">Scan Drive on open</span>
+                </label>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Check the Drive folders for images you added yourself each time the app opens.</p>
+              </>
+            ) : (
+              <button onClick={handleDriveConnect} disabled={!isDriveConfigured()} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">
+                Connect Google Drive
+              </button>
+            )}
+          </div>
+
           <div className="border border-red-200 dark:border-red-900 rounded-xl p-4">
             <h3 className="font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-2"><ShieldAlert size={18} /> Danger Zone</h3>
             
@@ -104,8 +238,8 @@ export default function SettingsModal({ onClose }) {
                 <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-pointer mb-6 border border-gray-200 dark:border-gray-600">
                   <input type="checkbox" checked={deleteCloud} onChange={(e) => setDeleteCloud(e.target.checked)} className="w-5 h-5 accent-red-600" />
                   <div className="text-left">
-                    <span className="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-1"><Cloud size={14}/> Also wipe Cloud Folder</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Syncs deletion to Google Drive / iCloud</span>
+                    <span className="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-1"><Cloud size={14}/> Also move the Drive folder to trash</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Moves the ColorNest folder in Google Drive to trash (recoverable for 30 days)</span>
                   </div>
                 </label>
 
@@ -135,21 +269,21 @@ export default function SettingsModal({ onClose }) {
                 {deleteCloud ? (
                   <>
                     <Cloud size={48} className="mx-auto text-red-600 mb-4" />
-                    <h3 className="text-xl font-bold text-red-600 mb-2">Cloud Data Loss!</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">You have chosen to wipe the cloud folder. This will permanently delete your entire database from your cloud storage.</p>
+                    <h3 className="text-xl font-bold text-red-600 mb-2">Drive Folder Trashed!</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">You have chosen to move the ColorNest folder in Google Drive to trash. The files stay recoverable from the Drive trash for 30 days; sync never permanently deletes anything.</p>
                     <div className="flex gap-2">
                       <button onClick={() => setWipeStep(0)} className="flex-1 bg-gray-200 dark:bg-gray-700 py-2 rounded-lg font-bold text-gray-800 dark:text-white">Cancel</button>
-                      <button onClick={handleNextWipeStep} className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold">Wipe Cloud Too</button>
+                      <button onClick={handleNextWipeStep} className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold">Trash Drive Too</button>
                     </div>
                   </>
                 ) : (
                   <>
                     <CheckCircle2 size={48} className="mx-auto text-green-500 mb-4" />
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Cloud Folder Safe</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">You did not select to wipe the cloud folder. Your database will remain intact in your cloud storage (Google Drive / iCloud).</p>
+                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Drive Folder Safe</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">You did not select the Drive folder. Your Google Drive backup will remain intact.</p>
                     <div className="flex gap-2">
                       <button onClick={() => setWipeStep(0)} className="flex-1 bg-gray-200 dark:bg-gray-700 py-2 rounded-lg font-bold text-gray-800 dark:text-white">Cancel</button>
-                      <button onClick={handleNextWipeStep} className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold">Keep Cloud Data</button>
+                      <button onClick={handleNextWipeStep} className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold">Keep Drive Data</button>
                     </div>
                   </>
                 )}
@@ -174,7 +308,7 @@ export default function SettingsModal({ onClose }) {
                     disabled={confirmText !== "DELETE"}
                     className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold disabled:opacity-50"
                   >
-                    {deleteCloud ? "Wipe App & Cloud" : "Wipe App Only"}
+                    {deleteCloud ? "Wipe App & Trash Drive" : "Wipe App Only"}
                   </button>
                 </div>
               </div>

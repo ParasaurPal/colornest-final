@@ -20,6 +20,9 @@ interface CategoryDao {
     @Query("SELECT * FROM categories WHERE id = :id LIMIT 1")
     suspend fun getCategoryById(id: Long): Category?
 
+    @Query("SELECT * FROM categories WHERE driveFolderId = :driveFolderId LIMIT 1")
+    suspend fun getCategoryByDriveFolderId(driveFolderId: String): Category?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: Category): Long
 

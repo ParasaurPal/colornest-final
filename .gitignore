@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files (OAuth client IDs live here — never commit them)
+.env
+
+# Android / Gradle
+local.properties
+.gradle/
+build/
+captures/
+*.jks
+*.keystore
+*.apk
