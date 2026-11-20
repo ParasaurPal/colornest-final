@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { db } from './db';
-import { learnPattern } from './localBrain';
 
 export default function CategorizeModal({ page, categories, onClose }) {
   const [title, setTitle] = useState(page.title);
@@ -11,20 +10,13 @@ export default function CategorizeModal({ page, categories, onClose }) {
     const tagArray = tags.split(',').map(t => t.trim()).filter(t => t !== "");
     const newCategoryId = selectedCat ? parseInt(selectedCat) : null;
     
-    await db.pages.update(page.id, { 
+    await db.pages.update(page.id, {
       title: title,
-      categoryId: newCategoryId, 
-      isUncategorized: 0, 
-      aiStatus: null,
+      categoryId: newCategoryId,
+      isUncategorized: 0,
       tags: tagArray
     });
 
-    // If the user changed the category, force the local brain to learn the correction
-    if (newCategoryId) {
-      await learnPattern(page.imageUrl, newCategoryId);
-      console.log(`🧠 User corrected category. Learned new pattern for ID: ${newCategoryId}`);
-    }
-    
     onClose();
   };
 
@@ -46,7 +38,7 @@ export default function CategorizeModal({ page, categories, onClose }) {
         <label className="text-xs font-bold text-gray-600 dark:text-gray-400">Title</label>
         <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full p-2 border rounded-lg mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
 
-        <label className="text-xs font-bold text-gray-600 dark:text-gray-400">Category (Train AI)</label>
+        <label className="text-xs font-bold text-gray-600 dark:text-gray-400">Category</label>
         <select className="w-full p-2 border rounded-lg mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white" onChange={(e) => setSelectedCat(e.target.value)} value={selectedCat}>
           <option value="">Leave as Uncategorized</option>
           {renderOptions(null)}

@@ -2,11 +2,7 @@ package com.yourname.colornest.ui.components
 
 import android.content.Context
 import android.content.Intent
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,10 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -39,11 +33,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -59,9 +51,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.ui.theme.AccentPink
-import com.yourname.colornest.ui.theme.AccentRed
 import com.yourname.colornest.ui.theme.PurplePrimary
 import java.io.File
+
+private const val CLIP_STUDIO_PACKAGE = "jp.co.celsys.clipstudiopaint.googleplay"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -255,58 +248,33 @@ fun PageCard(
                 )
             }
 
-            // AI Status badge
-            if (!page.aiStatus.isNullOrBlank()) {
-                val isError = page.aiStatus.contains("Error", ignoreCase = true)
-                val infiniteTransition = rememberInfiniteTransition(label = "spin")
-                val rotation by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 360f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1200, easing = LinearEasing)
-                    ),
-                    label = "rotation"
-                )
+            Spacer(modifier = Modifier.height(6.dp))
 
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            if (isError) AccentRed.copy(alpha = 0.15f)
-                            else PurplePrimary.copy(alpha = 0.15f)
-                        )
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (isError) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = AccentRed,
-                            modifier = Modifier.size(10.dp)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = null,
-                            tint = PurplePrimary,
-                            modifier = Modifier
-                                .size(10.dp)
-                                .rotate(rotation)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = page.aiStatus,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isError) AccentRed else PurplePrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            // Open in Clip Studio Paint button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(PurplePrimary.copy(alpha = if (isDarkMode) 0.25f else 0.1f))
+                    .clickable { openInClipStudio(context, page.imageUrl) }
+                    .padding(vertical = 6.dp)
+                    .testTag("open_clip_studio_button_${page.id}"),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.OpenInNew,
+                    contentDescription = null,
+                    tint = PurplePrimary,
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Open in Clip Studio",
+                    color = PurplePrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -331,5 +299,36 @@ private fun openImageExternally(context: Context, filePath: String) {
         context.startActivity(chooser)
     } catch (e: Exception) {
         // Fallback or ignore
+    }
+}
+
+// Share the page image directly to Clip Studio Paint. Whether Clip Studio
+// opens it as a new project or imports it depends on Clip Studio's own
+// handling of the shared image; this sends the standard share-to-app intent.
+private fun openInClipStudio(context: Context, filePath: String) {
+    try {
+        val file = File(filePath)
+        if (!file.exists()) return
+        val uri = FileProvider.getUriForFile(
+            context,
+            "com.yourname.colornest.fileprovider",
+            file
+        )
+        val clipIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/*"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            setPackage(CLIP_STUDIO_PACKAGE)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        if (clipIntent.resolveActivity(context.packageManager) != null) {
+            clipIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(clipIntent)
+        } else {
+            Toast.makeText(context, "Clip Studio Paint isn't installed", Toast.LENGTH_LONG).show()
+            openImageExternally(context, filePath)
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "Clip Studio Paint isn't installed", Toast.LENGTH_LONG).show()
+        openImageExternally(context, filePath)
     }
 }

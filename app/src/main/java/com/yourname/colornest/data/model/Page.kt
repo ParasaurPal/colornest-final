@@ -17,9 +17,6 @@ data class Page(
     val isCompleted: Boolean = false,
     val progress: Int = 0,
     val isUncategorized: Boolean = true,
-    val isProcessingAi: Boolean = false,
-    val aiStatus: String? = "Queued",
-    val aiSuggestedCategoryId: Long? = null,
     val tags: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis()
 )

@@ -119,7 +119,7 @@ fun OnboardingDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "ColorNest is NOT a digital art app, a coloring app, or a photo storage app.\n\n" +
-                                        "It is a beautiful, AI-powered catalog designed to help you organize the physical coloring books, printed pages, and line art you already own.\n\n" +
+                                        "It is a beautiful catalog designed to help you organize the physical coloring books, printed pages, and line art you already own.\n\n" +
                                         "Think of it as a library index for your hobby, not the drawing canvas itself.",
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
@@ -130,7 +130,7 @@ fun OnboardingDialog(
                             Text("Track Your Progress", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Upload photos of your pages, and use our AI to automatically sort them into deeply nested folders (like Animals > Birds > Owls).\n\n" +
+                                "Upload photos of your pages, and sort them yourself into deeply nested folders (like Animals > Birds > Owls).\n\n" +
                                         "When you are done coloring a page, you can mark it as Completed.\n\n" +
                                         "This gives you a dedicated Finished section, allowing you to easily browse and show off all your finished artwork in one beautiful gallery at once.",
                                 fontSize = 14.sp,

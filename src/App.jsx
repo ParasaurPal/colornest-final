@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Heart, Plus, Loader2, AlertCircle, Trash2, Moon, Sun, Menu, Settings, ExternalLink } from 'lucide-react';
+import { Search, Heart, Plus, Trash2, Moon, Sun, Menu, Settings, ExternalLink } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import AddPageModal from './AddPageModal';
@@ -7,7 +7,6 @@ import SideMenu from './SideMenu';
 import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding'; // Import the new tutorial
-import { startBackgroundWorker } from './backgroundWorker';
 import { Capacitor } from '@capacitor/core';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
@@ -20,6 +19,7 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showNoTagsOnly, setShowNoTagsOnly] = useState(false);
   
   // State for tutorial
   const [showTutorial, setShowTutorial] = useState(false);
@@ -28,7 +28,6 @@ function App() {
   const categories = useLiveQuery(() => db.categories.toArray());
 
   useEffect(() => {
-    startBackgroundWorker();
     if (localStorage.getItem('theme') === 'dark') {
       setIsDarkMode(true); document.documentElement.classList.add('dark');
     }
@@ -96,6 +95,7 @@ function App() {
       const matchTags = page.tags && page.tags.some(t => t.toLowerCase().includes(q));
       if (!matchTitle && !matchTags) return false;
     }
+    if (showNoTagsOnly && page.tags && page.tags.length > 0) return false;
     return true;
   });
 
@@ -127,6 +127,11 @@ function App() {
         <div className="relative">
           <Search size={18} className="absolute left-3 top-2.5 text-gray-400" />
           <input type="text" placeholder="Search titles or tags..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-white pl-10 pr-4 py-2 rounded-xl outline-none" />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setShowNoTagsOnly(!showNoTagsOnly)} className={`px-3 py-1.5 rounded-full text-xs font-bold ${showNoTagsOnly ? 'bg-purple-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
+            No tags only
+          </button>
         </div>
       </header>
 
@@ -162,13 +167,6 @@ function App() {
               <button onClick={() => openExternal(page.imageUrl)} className="mt-auto w-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
                 <ExternalLink size={12} /> Open Page
               </button>
-              
-              {page.aiStatus && (
-                <div className={`mt-2 text-[10px] px-2 py-1 rounded-md flex items-center gap-1 font-bold ${page.aiStatus.includes("Error") ? 'bg-red-100 text-red-700' : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200'}`}>
-                  {page.aiStatus.includes("Error") ? <AlertCircle size={10} /> : <Loader2 size={10} className="animate-spin" />}
-                  {page.aiStatus}
-                </div>
-              )}
             </div>
           </div>
         ))}

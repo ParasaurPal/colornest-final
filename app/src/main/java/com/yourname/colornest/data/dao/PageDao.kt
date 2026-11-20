@@ -26,8 +26,8 @@ interface PageDao {
     @Query("SELECT * FROM pages WHERE id IN (:ids)")
     suspend fun getPagesByIds(ids: List<Long>): List<Page>
 
-    @Query("SELECT * FROM pages WHERE isUncategorized = 1 AND isProcessingAi = 0 AND aiStatus = 'Queued' LIMIT 1")
-    suspend fun getNextPendingAiPage(): Page?
+    @Query("UPDATE pages SET tags = ''")
+    suspend fun clearAllTags()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPage(page: Page): Long

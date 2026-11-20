@@ -14,16 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Button
-import androidx.compose.material3.AlertDialog
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -37,6 +27,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +41,6 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,10 +67,6 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var showAiDialog by remember { mutableStateOf(false) }
-    var showSelectImagesDialog by remember { mutableStateOf(false) }
-    val selectedImageIds = remember { mutableStateListOf<Long>() }
-    val untaggedPages = uiState.pages.filter { it.isUncategorized }
 
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -220,14 +206,12 @@ fun HomeScreen(
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = { showAiDialog = true },
-                        enabled = !uiState.isDetectingSubjects && untaggedPages.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth().testTag("ai_subject_detection_button")
-                    ) {
-                        Text(
-                            if (uiState.isDetectingSubjects) "Detecting subjects..."
-                            else "AI Subject Detection  •  " + untaggedPages.size + " untagged"
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(
+                            selected = uiState.showNoTagsOnly,
+                            onClick = { viewModel.toggleShowNoTagsOnly() },
+                            label = { Text("No tags only") },
+                            modifier = Modifier.testTag("no_tags_filter_chip")
                         )
                     }
                 }
@@ -262,14 +246,14 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = if (uiState.searchQuery.isNotBlank()) "No coloring pages found" else "No pages yet",
+                            text = if (uiState.searchQuery.isNotBlank() || uiState.showNoTagsOnly) "No coloring pages found" else "No pages yet",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = if (uiState.searchQuery.isNotBlank()) "Try searching for a different title or tag" else "Tap the + button below to add your first coloring page or PDF!",
+                            text = if (uiState.searchQuery.isNotBlank()) "Try searching for a different title or tag" else if (uiState.showNoTagsOnly) "Every page has at least one tag" else "Tap the + button below to add your first coloring page or PDF!",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -300,86 +284,6 @@ fun HomeScreen(
         }
     }
 
-    if (showAiDialog) {
-        AlertDialog(
-            onDismissRequest = { showAiDialog = false },
-            title = { Text("AI Subject Detection") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(if (uiState.geminiEnabled) "Connected Gemini AI will analyze each image and choose from your categories. If the connection fails, the page will show the exact API error instead of silently switching providers." else "Gemini is not connected. Open Settings to test and connect your API key. Until then, detection uses free on-device recognition.")
-                    Button(
-                        onClick = {
-                            showAiDialog = false
-                            viewModel.detectSubjects(null)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Process entire Untagged collection (" + untaggedPages.size + ")")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            selectedImageIds.clear()
-                            showAiDialog = false
-                            showSelectImagesDialog = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Choose images to process")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAiDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    if (showSelectImagesDialog) {
-        AlertDialog(
-            onDismissRequest = { showSelectImagesDialog = false },
-            title = { Text("Choose images") },
-            text = {
-                Column {
-                    Text(selectedImageIds.size.toString() + " selected")
-                    LazyColumn(modifier = Modifier.height(320.dp)) {
-                        items(untaggedPages, key = { it.id }) { page ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Checkbox(
-                                    checked = selectedImageIds.contains(page.id),
-                                    onCheckedChange = { checked ->
-                                        if (checked) selectedImageIds.add(page.id)
-                                        else selectedImageIds.remove(page.id)
-                                    }
-                                )
-                                Text(
-                                    text = page.title.ifBlank { "Untitled image #" + page.id },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val ids = selectedImageIds.toList()
-                        showSelectImagesDialog = false
-                        selectedImageIds.clear()
-                        if (ids.isNotEmpty()) viewModel.detectSubjects(ids)
-                    },
-                    enabled = selectedImageIds.isNotEmpty()
-                ) { Text("Process selected") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSelectImagesDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
     // Add Page Dialog
     AddPageDialog(
         isOpen = uiState.isAddModalOpen,
@@ -403,20 +307,12 @@ fun HomeScreen(
     // Settings Dialog
     SettingsDialog(
         isOpen = uiState.isSettingsOpen,
-        aiEnabled = uiState.aiCategorizationEnabled,
-        geminiEnabled = uiState.geminiEnabled,
-        geminiApiKey = uiState.geminiApiKey,
-        geminiConnectionStatus = uiState.geminiConnectionStatus,
         isSeeding = uiState.isSeeding,
         wipeStep = uiState.wipeStep,
         deleteCloud = uiState.deleteCloud,
         confirmDeleteText = uiState.confirmDeleteText,
-        onToggleAi = { viewModel.toggleAiEnabled() },
-        onGeminiApiKeyChange = { viewModel.setGeminiApiKeyDraft(it) },
-        onConnectGemini = { viewModel.testAndConnectGemini() },
-        onToggleGemini = { viewModel.toggleGeminiEnabled() },
         onSeedCategories = { viewModel.seedMassiveCategories() },
-        onResetAiLearning = { viewModel.resetAiLearning() },
+        onClearAllTags = { viewModel.clearAllTags() },
         onSetWipeStep = { viewModel.setWipeStep(it) },
         onSetDeleteCloud = { viewModel.setDeleteCloud(it) },
         onSetConfirmText = { viewModel.setConfirmDeleteText(it) },

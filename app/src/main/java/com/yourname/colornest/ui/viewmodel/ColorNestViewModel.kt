@@ -30,11 +30,7 @@ data class UiState(
     val addProgressText: String = "",
     val addProgressPercent: Int = 0,
     val isSeeding: Boolean = false,
-    val aiCategorizationEnabled: Boolean = true,
-    val isDetectingSubjects: Boolean = false,
-    val geminiEnabled: Boolean = false,
-    val geminiApiKey: String = "",
-    val geminiConnectionStatus: String = "",
+    val showNoTagsOnly: Boolean = false,
     val wipeStep: Int = 0,
     val deleteCloud: Boolean = false,
     val confirmDeleteText: String = ""
@@ -55,11 +51,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     private val _addProgressText = MutableStateFlow("")
     private val _addProgressPercent = MutableStateFlow(0)
     private val _isSeeding = MutableStateFlow(false)
-    private val _aiCategorizationEnabled = MutableStateFlow(true)
-    private val _isDetectingSubjects = MutableStateFlow(false)
-    private val _geminiEnabled = MutableStateFlow(false)
-    private val _geminiApiKey = MutableStateFlow("")
-    private val _geminiConnectionStatus = MutableStateFlow("")
+    private val _showNoTagsOnly = MutableStateFlow(false)
     private val _wipeStep = MutableStateFlow(0)
     private val _deleteCloud = MutableStateFlow(false)
     private val _confirmDeleteText = MutableStateFlow("")
@@ -68,7 +60,6 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     val categoriesFlow = repository.getAllCategoriesFlow()
 
     init {
-        repository.startBackgroundWorker(viewModelScope)
         viewModelScope.launch {
             val seen = repository.getSetting("hasSeenTutorial")
             if (seen == null || seen != "true") {
@@ -79,13 +70,6 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             if (theme == "dark") {
                 _isDarkMode.value = true
             }
-
-            val aiSetting = repository.getSetting("aiCategorizationEnabled")
-            if (aiSetting != null) {
-                _aiCategorizationEnabled.value = aiSetting.toBooleanStrictOrNull() ?: true
-            }
-            _geminiEnabled.value = repository.getSetting("geminiEnabled") == "true"
-            _geminiApiKey.value = repository.getGeminiApiKey()
         }
     }
 
@@ -104,11 +88,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _addProgressText,
         _addProgressPercent,
         _isSeeding,
-        _aiCategorizationEnabled,
-        _isDetectingSubjects,
-        _geminiEnabled,
-        _geminiApiKey,
-        _geminiConnectionStatus,
+        _showNoTagsOnly,
         _wipeStep,
         _deleteCloud,
         _confirmDeleteText
@@ -129,16 +109,12 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         val progText = args[11] as String
         val progPct = args[12] as Int
         val seeding = args[13] as Boolean
-        val aiEnabled = args[14] as Boolean
-        val detectingSubjects = args[15] as Boolean
-        val geminiOn = args[16] as Boolean
-        val geminiKey = args[17] as String
-        val geminiStatus = args[18] as String
-        val wipeSt = args[19] as Int
-        val delCloud = args[20] as Boolean
-        val confText = args[21] as String
+        val noTagsOnly = args[14] as Boolean
+        val wipeSt = args[15] as Int
+        val delCloud = args[16] as Boolean
+        val confText = args[17] as String
 
-        val filtered = filterPages(pages, categories, activeCatId, query)
+        val filtered = filterPages(pages, categories, activeCatId, query, noTagsOnly)
 
         UiState(
             pages = pages,
@@ -156,11 +132,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             addProgressText = progText,
             addProgressPercent = progPct,
             isSeeding = seeding,
-            aiCategorizationEnabled = aiEnabled,
-            isDetectingSubjects = detectingSubjects,
-            geminiEnabled = geminiOn,
-            geminiApiKey = geminiKey,
-            geminiConnectionStatus = geminiStatus,
+            showNoTagsOnly = noTagsOnly,
             wipeStep = wipeSt,
             deleteCloud = delCloud,
             confirmDeleteText = confText
@@ -184,7 +156,8 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         pages: List<Page>,
         categories: List<Category>,
         activeCatId: Long?,
-        query: String
+        query: String,
+        showNoTagsOnly: Boolean
     ): List<Page> {
         return pages.filter { page ->
             if (activeCatId == -1L) {
@@ -199,6 +172,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
                 val matchTags = page.tags.any { it.lowercase().contains(q) }
                 if (!matchTitle && !matchTags) return@filter false
             }
+            if (showNoTagsOnly && page.tags.isNotEmpty()) return@filter false
             true
         }
     }
@@ -250,63 +224,13 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun toggleAiEnabled() {
-        val newVal = !_aiCategorizationEnabled.value
-        _aiCategorizationEnabled.value = newVal
-        viewModelScope.launch {
-            repository.setSetting("aiCategorizationEnabled", newVal.toString())
-        }
+    fun toggleShowNoTagsOnly() {
+        _showNoTagsOnly.value = !_showNoTagsOnly.value
     }
 
-    fun detectSubjects(pageIds: List<Long>? = null) {
-        if (_isDetectingSubjects.value) return
+    fun clearAllTags() {
         viewModelScope.launch {
-            _isDetectingSubjects.value = true
-            try {
-                repository.detectSubjects(pageIds)
-            } finally {
-                _isDetectingSubjects.value = false
-            }
-        }
-    }
-
-    fun setGeminiApiKeyDraft(value: String) {
-        _geminiApiKey.value = value
-        _geminiConnectionStatus.value = ""
-    }
-
-    fun testAndConnectGemini() {
-        val key = _geminiApiKey.value.trim()
-        if (key.isBlank()) {
-            _geminiConnectionStatus.value = "Paste your Gemini API key first."
-            return
-        }
-        viewModelScope.launch {
-            _geminiConnectionStatus.value = "Testing Gemini connection..."
-            try {
-                val result = repository.testGeminiConnection(key)
-                repository.saveGeminiApiKey(key)
-                repository.setSetting("geminiEnabled", "true")
-                _geminiEnabled.value = true
-                _geminiConnectionStatus.value = result + " Gemini is now selected for subject detection."
-            } catch (error: Exception) {
-                _geminiConnectionStatus.value = error.message ?: "Could not connect to Gemini. Check your internet connection and API key."
-            }
-        }
-    }
-
-    fun toggleGeminiEnabled() {
-        if (_geminiApiKey.value.isBlank() && !_geminiEnabled.value) return
-        val enabled = !_geminiEnabled.value
-        _geminiEnabled.value = enabled
-        viewModelScope.launch {
-            repository.setSetting("geminiEnabled", enabled.toString())
-        }
-    }
-
-    fun resetAiLearning() {
-        viewModelScope.launch {
-            repository.resetAiBrain()
+            repository.clearAllTags()
         }
     }
 

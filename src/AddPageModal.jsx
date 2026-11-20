@@ -26,14 +26,14 @@ export default function AddPageModal({ isOpen, onClose }) {
     return base64Data; 
   };
 
-  const savePageToDb = async (base64Data, title = "Sorting...") => {
+  const savePageToDb = async (base64Data, title = "Untitled page") => {
     const fileName = `img_${Date.now()}_${Math.floor(Math.random()*1000)}.jpg`;
     const finalImageUrl = await saveImageToDevice(base64Data, fileName);
-    
+
     await db.pages.add({
       title: title, categoryId: null, complexity: "Beginner", time: "TBD", tool: "TBD",
-      imageUrl: finalImageUrl, isFavorite: 0, isCompleted: 0, progress: 0, isUncategorized: 1, 
-      isProcessingAi: 0, aiStatus: "Queued", tags: []
+      imageUrl: finalImageUrl, isFavorite: 0, isCompleted: 0, progress: 0, isUncategorized: 1,
+      tags: []
     });
   };
 

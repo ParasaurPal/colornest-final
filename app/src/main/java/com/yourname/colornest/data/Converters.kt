@@ -13,15 +13,4 @@ class Converters {
         if (value.isNullOrBlank()) return emptyList()
         return value.split(",").map { it.trim() }.filter { it.isNotEmpty() }
     }
-
-    @TypeConverter
-    fun fromFloatList(value: List<Float>?): String {
-        return value?.joinToString(",") ?: ""
-    }
-
-    @TypeConverter
-    fun toFloatList(value: String?): List<Float> {
-        if (value.isNullOrBlank()) return emptyList()
-        return value.split(",").mapNotNull { it.trim().toFloatOrNull() }
-    }
 }
