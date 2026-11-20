@@ -1,34 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { db } from './db';
-import { X, Trash2, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
-import { resetAIBrain } from './localBrain';
+import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
 
 export default function SettingsModal({ onClose }) {
-  const [aiEnabled, setAiEnabled] = useState(true);
   const [isSeeding, setIsSeeding] = useState(false);
-  
+
   // Wipe App State
-  const [wipeStep, setWipeStep] = useState(0); 
+  const [wipeStep, setWipeStep] = useState(0);
   const [confirmText, setConfirmText] = useState("");
   const [deleteCloud, setDeleteCloud] = useState(false);
 
-  useEffect(() => {
-    db.settings.get('aiCategorizationEnabled').then(s => { if (s) setAiEnabled(s.value); });
-  }, []);
-
-  const toggleAI = async () => {
-    const newVal = !aiEnabled;
-    setAiEnabled(newVal);
-    await db.settings.put({ key: 'aiCategorizationEnabled', value: newVal });
-  };
-
-  const handleReset = async () => {
-    if (window.confirm("Reset AI Learning?")) {
-      await resetAIBrain();
-      alert("AI Brain reset.");
+  const handleClearAllTags = async () => {
+    if (window.confirm("Remove all tags from every page? Titles, categories, favorites, and completion status will not change.")) {
+      const allPages = await db.pages.toArray();
+      await Promise.all(allPages.map(p => db.pages.update(p.id, { tags: [] })));
+      alert("All tags have been cleared.");
     }
   };
 
@@ -77,16 +66,6 @@ export default function SettingsModal({ onClose }) {
         <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">Settings</h2>
 
         <div className="space-y-4">
-          <div className="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
-            <div>
-              <h3 className="font-bold text-gray-800 dark:text-white">AI Categorization</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-300 mt-1">Allow AI to assign folders.</p>
-            </div>
-            <button onClick={toggleAI} className={`w-14 h-8 rounded-full transition-colors relative ${aiEnabled ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'}`}>
-              <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-transform ${aiEnabled ? 'left-7' : 'left-1'}`}></div>
-            </button>
-          </div>
-
           <div className="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
             <h3 className="font-bold text-purple-800 dark:text-purple-300 flex items-center gap-2 mb-2">
               <RefreshCw size={18} /> Setup Categories
@@ -99,8 +78,8 @@ export default function SettingsModal({ onClose }) {
           <div className="border border-red-200 dark:border-red-900 rounded-xl p-4">
             <h3 className="font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-2"><ShieldAlert size={18} /> Danger Zone</h3>
             
-            <button onClick={handleReset} className="w-full mb-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 py-2 rounded-lg font-bold flex items-center justify-center gap-2">
-              <Trash2 size={16} /> Reset AI Learning
+            <button onClick={handleClearAllTags} className="w-full mb-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 py-2 rounded-lg font-bold flex items-center justify-center gap-2">
+              <Tags size={16} /> Clear All Tags
             </button>
 
             <button onClick={() => setWipeStep(1)} className="w-full bg-red-600 text-white py-2 rounded-lg font-bold flex items-center justify-center gap-2">

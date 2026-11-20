@@ -15,7 +15,7 @@ export default function Onboarding({ onComplete }) {
             ColorNest is <strong>NOT</strong> a digital art app, a coloring app, or a photo storage app. 
           </p>
           <p>
-            It is a beautiful, AI-powered catalog designed to help you organize the physical coloring books, printed pages, and line art you already own (whether they are saved in your phone's gallery or your cloud storage like Google Drive).
+            It is a beautiful catalog designed to help you organize the physical coloring books, printed pages, and line art you already own (whether they are saved in your phone's gallery or your cloud storage like Google Drive).
           </p>
           <p>
             Think of it as a library index for your hobby, not the drawing canvas itself.
@@ -30,7 +30,7 @@ export default function Onboarding({ onComplete }) {
         <div className="space-y-4 text-gray-600 dark:text-gray-300">
           <p className="font-bold text-gray-800 dark:text-white text-lg">Track Your Progress</p>
           <p>
-            Upload photos of your pages, and use our AI to automatically sort them into deeply nested folders (like <em>Animals &gt; Birds &gt; Owls</em>).
+            Upload photos of your pages, and sort them yourself into deeply nested folders (like <em>Animals &gt; Birds &gt; Owls</em>).
           </p>
           <p>
             When you are done coloring a page, you can mark it as <strong>Completed</strong>. 

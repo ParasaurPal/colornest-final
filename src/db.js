@@ -2,11 +2,10 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('ColorNestDB');
 
-db.version(8).stores({
-  pages: '++id, title, categoryId, complexity, isFavorite, isCompleted, isUncategorized, aiStatus, aiSuggestedCategoryId, *tags',
+db.version(9).stores({
+  pages: '++id, title, categoryId, complexity, isFavorite, isCompleted, isUncategorized, *tags',
   categories: '++id, name, parentId',
-  learnedPatterns: '++id, categoryId',
-  settings: 'key' 
+  settings: 'key'
 });
 
 // Auto-create default categories on first load

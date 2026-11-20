@@ -112,7 +112,7 @@ fun CategorizeDialog(
 
                 // Category dropdown
                 Text(
-                    text = "Category (Train AI)",
+                    text = "Category",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
