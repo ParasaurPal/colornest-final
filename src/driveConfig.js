@@ -1,4 +1,4 @@
-// Google Drive configuration for the web / Capacitor app.
+// Google Drive configuration for the ColorNest PWA.
 //
 // The Web OAuth client ID comes from a `.env` file (see `.env.example` and
 // DRIVE_SETUP.md). A client ID is a public identifier, not a secret, but it

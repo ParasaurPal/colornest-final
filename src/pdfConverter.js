@@ -3,7 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 // Point to the local worker file in the public folder
 pdfjsLib.GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min.mjs`;
 
-// Accept the arrayBuffer directly to avoid Android file reading issues
+// Accept an ArrayBuffer from the browser file picker.
 export async function convertPdfToImages(arrayBuffer) {
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const images = [];

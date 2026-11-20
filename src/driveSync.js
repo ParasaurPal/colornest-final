@@ -1,5 +1,5 @@
-// Google Drive sync orchestration for the web / Capacitor app. Mirrors the
-// Kotlin app's DriveSyncManager: same folder layout, same two-way rules.
+// Two-way Google Drive synchronization for the ColorNest PWA.
+// The browser's IndexedDB library remains the offline working copy.
 //
 // Layout in Drive: a top-level "ColorNest" folder holds one folder per
 // category, mirroring the nested category tree

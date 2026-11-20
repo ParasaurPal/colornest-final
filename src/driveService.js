@@ -1,14 +1,7 @@
-// Low-level Google Drive access for the web / Capacitor app: Google
-// Identity Services sign-in plus Drive API v3 calls over fetch.
-//
-// Sign-in uses the GIS token client (an access token, no server involved).
-// The token is kept in localStorage so a sync can run without asking the
-// user to sign in again every time the app opens.
-//
-// Note: in the Capacitor-installed build the Google sign-in opens in a
-// pop-up inside the app's web view, which needs the https://localhost origin
-// authorized on the Web OAuth client (see DRIVE_SETUP.md). If the pop-up is
-// blocked there, use the web version of the app for Drive setup.
+// Google Drive API access for the ColorNest PWA.
+// Google Identity Services supplies short-lived browser access tokens; no
+// backend server or embedded client secret is required. Configure the exact
+// HTTPS PWA origin as an authorized JavaScript origin in Google Cloud.
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPES, isDriveConfigured } from './driveConfig';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
