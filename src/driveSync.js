@@ -340,27 +340,30 @@ export async function syncDrive() {
         const pdfBlob = await downloadFile(file.id);
         const pageImages = await convertPdfToImages(await pdfBlob.arrayBuffer());
         if (!pageImages.length) throw new Error('The PDF did not contain any pages.');
-        const baseTitle = file.name.replace(/\\.pdf$/i, '') || 'Imported PDF';
+        const baseTitle = file.name.replace(/\.pdf$/i, '') || 'Imported PDF';
         const now = Date.now();
-        for (let index = 0; index < pageImages.length; index++) {
-          await db.pages.add({
-            updatedAt: now,
-            title: `${baseTitle} - Page ${index + 1}`,
-            categoryId: null,
-            complexity: 'Beginner',
-            time: 'TBD',
-            tool: 'TBD',
-            imageUrl: pageImages[index],
-            isFavorite: 0,
-            isCompleted: 0,
-            progress: 0,
-            isUncategorized: 1,
-            driveFileId: null,
-            tags: [],
-          });
-        }
+        const newPages = pageImages.map((imageUrl, index) => ({
+          updatedAt: now,
+          title: `${baseTitle} - Page ${index + 1}`,
+          categoryId: null,
+          complexity: 'Beginner',
+          time: 'TBD',
+          tool: 'TBD',
+          imageUrl,
+          isFavorite: 0,
+          isCompleted: 0,
+          progress: 0,
+          isUncategorized: 1,
+          driveFileId: null,
+          tags: [],
+        }));
+        // Save all pages and the processed marker atomically to prevent
+        // duplicate imports if the browser closes during conversion.
+        await db.transaction('rw', db.pages, db.settings, async () => {
+          await db.pages.bulkAdd(newPages);
+          await setSetting(KEY_PROCESSED_PDF_IDS, [...processedPdfIds, file.id].join(','));
+        });
         processedPdfIds.add(file.id);
-        await setSetting(KEY_PROCESSED_PDF_IDS, [...processedPdfIds].join(','));
         pdfsConverted++;
         pdfPagesCreated += pageImages.length;
       }
