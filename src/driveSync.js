@@ -224,7 +224,13 @@ async function syncPageMetadata(rootId, metadataFolderId, remoteFiles) {
         await trashFile(file.id).catch(() => {});
         continue;
       }
-      if (metadata.syncId && metadata.driveFileId) remoteByDriveId.set(metadata.driveFileId, { file, metadata });
+      if (metadata.syncId && metadata.driveFileId) {
+        if (!(file.parentIds || []).includes(metadataFolderId)) {
+          await moveFile(file.id, file.parentIds || [], metadataFolderId);
+          file.parentIds = [metadataFolderId];
+        }
+        remoteByDriveId.set(metadata.driveFileId, { file, metadata });
+      }
     } catch (error) {
       console.warn('Skipping unreadable ColorNest metadata file:', error.message);
     }
