@@ -279,8 +279,9 @@ async function syncPageMetadata(rootId, metadataFolderId, remoteFiles) {
       const blob = new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' });
       const existing = remoteEntry?.file || await findFileByName(name, metadataFolderId) || await findFileByName(name, rootId);
       if (existing) {
-        if (!(existing.parents || []).includes(metadataFolderId)) {
-          await moveFile(existing.id, existing.parents || [], metadataFolderId);
+        const existingParents = existing.parentIds || existing.parents || [];
+        if (!existingParents.includes(metadataFolderId)) {
+          await moveFile(existing.id, existingParents, metadataFolderId);
         }
         await updateFileContent(existing.id, blob, 'application/json');
       } else {
