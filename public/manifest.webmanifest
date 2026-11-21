@@ -8,10 +8,10 @@
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone", "minimal-ui"],
   "orientation": "any",
-  "background_color": "#121212",
-  "theme_color": "#7c3aed",
+  "background_color": "#ffffff",
+  "theme_color": "#6500c9",
   "categories": ["lifestyle", "education", "productivity"],
   "icons": [
-    { "src": "icons/colornest.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "icons/colornest.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }
