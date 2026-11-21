@@ -4,7 +4,7 @@ ColorNest keeps the working library on the current device and optionally synchro
 
 ## What sync stores
 
-ColorNest creates a `ColorNest` folder in Drive. Images are stored in category folders. Each page also has a hidden-style JSON sidecar file named `.colornest-page-<id>.json` in the ColorNest root. The sidecar carries the stable page identity, title, nested category path, tags, favorite/completion state, and last-edit timestamp. This is what lets another device reconstruct the same library rather than merely downloading anonymous images.
+ColorNest creates a `ColorNest` folder in Drive. Images are stored in category folders. Each page also has a hidden-style JSON sidecar file named `.colornest-page-<id>.json` in `ColorNest/Metadata`. The sidecar carries the stable page identity, title, nested category path, tags, favorite/completion state, and last-edit timestamp. This is what lets another device reconstruct the same library rather than merely downloading anonymous images.
 
 Sync is two-way:
 - New local images are uploaded.
