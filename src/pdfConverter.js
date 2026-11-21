@@ -1,7 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Point to the local worker file in the public folder
-pdfjsLib.GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdf.worker.min.mjs`;
+// Let Vite bundle and version the matching PDF.js worker with the app.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // Accept an ArrayBuffer from the browser file picker.
 export async function convertPdfToImages(arrayBuffer) {
@@ -10,17 +11,18 @@ export async function convertPdfToImages(arrayBuffer) {
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); 
-    
+    const viewport = page.getViewport({ scale: 2.0 });
+
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not create a canvas for PDF conversion.');
+
     canvas.height = viewport.height;
     canvas.width = viewport.width;
 
-    await page.render({ canvasContext: context, viewport: viewport }).promise;
-    
+    await page.render({ canvasContext: context, viewport }).promise;
     images.push(canvas.toDataURL('image/jpeg', 0.8));
   }
-  
+
   return images;
 }
