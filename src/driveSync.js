@@ -38,6 +38,10 @@ const PROCESSED_PDFS_FOLDER_NAME = 'Processed PDFs';
 const MAX_TOMBSTONES = 500;
 
 let syncInFlight = null;
+const scanProgressListeners = new Set();
+export function subscribeScanProgress(listener) { scanProgressListeners.add(listener); return () => scanProgressListeners.delete(listener); }
+function reportScanProgress(progress) { const snapshot = { active: true, percent: 0, message: 'Scanning Google Drive…', ...progress }; for (const listener of scanProgressListeners) { try { listener(snapshot); } catch (error) { console.warn('Scan progress listener failed:', error); } } }
+function finishScanProgress(result = {}) { const snapshot = { active: false, percent: 100, message: 'Scan complete', ...result }; for (const listener of scanProgressListeners) { try { listener(snapshot); } catch (error) { console.warn('Scan progress listener failed:', error); } } }
 
 // ---------- Settings helpers ----------
 
@@ -321,6 +325,7 @@ export async function syncDrive() {
   let metadataUploaded = 0;
   let metadataDownloaded = 0;
 
+  reportScanProgress({ phase: 'connect', percent: 2, message: 'Connecting to Google Drive…' });
   const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
   const untaggedId = await getOrCreateFolder(DRIVE_UNTAGGED_FOLDER_NAME, rootId);
   const pdfInboxId = await getOrCreateFolder(PDF_INBOX_FOLDER_NAME, rootId);
@@ -332,9 +337,14 @@ export async function syncDrive() {
   // Convert PDFs placed in ColorNest/PDF Inbox. Record each completed
   // conversion before moving the source so a failed move never duplicates pages.
   const processedPdfIds = new Set((await getSetting(KEY_PROCESSED_PDF_IDS) || '').split(',').filter(Boolean));
+  reportScanProgress({ phase: 'pdfs', percent: 8, message: 'Checking PDF Inbox…' });
   const inboxFiles = await listChildren(pdfInboxId);
+  const pdfFiles = inboxFiles.filter(file => file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
+  let pdfIndex = 0;
   for (const file of inboxFiles) {
     if (file.mimeType !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) continue;
+    pdfIndex++;
+    reportScanProgress({ phase: 'pdfs', percent: 10 + Math.round((pdfIndex / Math.max(pdfFiles.length, 1)) * 20), message: `Processing PDF ${pdfIndex} of ${pdfFiles.length}: ${file.name}`, current: pdfIndex, total: pdfFiles.length });
     try {
       if (!processedPdfIds.has(file.id)) {
         const pdfBlob = await downloadFile(file.id);
@@ -374,13 +384,17 @@ export async function syncDrive() {
     }
   }
 
+  reportScanProgress({ phase: 'categories', percent: 32, message: 'Checking collection folders…' });
   // Ensure every category has a folder, mirroring the nested tree.
   const categories = await db.categories.toArray();
   const folderIdByCategory = {};
-  for (const category of categories) {
+  for (let index = 0; index < categories.length; index++) {
+    const category = categories[index];
     folderIdByCategory[category.id] = await ensureCategoryFolder(rootId, categories, category);
+    reportScanProgress({ phase: 'categories', percent: 32 + Math.round(((index + 1) / Math.max(categories.length, 1)) * 13), message: `Checking folders ${index + 1} of ${categories.length}` });
   }
 
+  reportScanProgress({ phase: 'drive', percent: 47, message: 'Reading files in Google Drive…' });
   // One recursive listing of the whole ColorNest tree.
   const remoteFiles = await listTree(rootId);
   const remoteById = new Map(remoteFiles.map((f) => [f.id, f]));
@@ -393,7 +407,9 @@ export async function syncDrive() {
 
   // Upload new pages; move/rename changed ones; drop pages whose Drive file
   // was trashed or deleted.
-  for (const page of pages) {
+  for (let index = 0; index < pages.length; index++) {
+    const page = pages[index];
+    reportScanProgress({ phase: 'pages', percent: 50 + Math.round(((index + 1) / Math.max(pages.length, 1)) * 25), message: `Syncing library pages ${index + 1} of ${pages.length}` });
     const driveId = page.driveFileId;
     if (!driveId) {
       try {
@@ -448,8 +464,12 @@ export async function syncDrive() {
   }
 
   // Download images the user added to Drive directly.
+  let remoteIndex = 0;
+  const remoteImages = remoteFiles.filter(remote => remote.mimeType?.startsWith('image/'));
   for (const remote of remoteFiles) {
     if (!remote.mimeType.startsWith('image/')) continue;
+    remoteIndex++;
+    reportScanProgress({ phase: 'downloads', percent: 76 + Math.round((remoteIndex / Math.max(remoteImages.length, 1)) * 17), message: `Checking Drive images ${remoteIndex} of ${remoteImages.length}` });
     if (localDriveIds.has(remote.id) || tombstones.has(remote.id)) continue;
     const folderId = remote.parentIds[0];
     if (!folderId) continue;
@@ -481,12 +501,15 @@ export async function syncDrive() {
     downloaded++;
   }
 
+  reportScanProgress({ phase: 'metadata', percent: 95, message: 'Updating page details…' });
   const metadataResult = await syncPageMetadata(rootId, remoteFiles);
   metadataUploaded = metadataResult.metadataUploaded;
   metadataDownloaded = metadataResult.metadataDownloaded;
 
   await setSetting(KEY_LAST_SYNC, Date.now());
-  return { notConnected: false, uploaded, downloaded, moved, renamed, removedLocal, metadataUploaded, metadataDownloaded, pdfsConverted, pdfPagesCreated, pdfsArchived };
+  const result = { notConnected: false, uploaded, downloaded, moved, renamed, removedLocal, metadataUploaded, metadataDownloaded, pdfsConverted, pdfPagesCreated, pdfsArchived };
+  finishScanProgress({ message: 'Google Drive scan complete', result });
+  return result;
 }
 
 /**
