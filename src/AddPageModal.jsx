@@ -4,6 +4,7 @@ import { db } from './db';
 import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { convertPdfToImages } from './pdfConverter';
 import { triggerBackgroundSync } from './driveSync';
+import { removeWhiteBackground } from './whiteBackground';
 
 export default function AddPageModal({ isOpen, onClose }) {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -15,7 +16,8 @@ export default function AddPageModal({ isOpen, onClose }) {
   const saveImageToDevice = async (base64Data) => base64Data;
 
   const savePageToDb = async (base64Data, title = "Untitled page") => {
-    const finalImageUrl = await saveImageToDevice(base64Data);
+    const transparentImage = await removeWhiteBackground(base64Data);
+    const finalImageUrl = await saveImageToDevice(transparentImage);
 
     await db.pages.add({
       title: title, categoryId: null, complexity: "Beginner", time: "TBD", tool: "TBD",
