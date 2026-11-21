@@ -3,6 +3,7 @@ import { db } from './db';
 import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
 import { removeWhiteBackground } from './whiteBackground';
+import { tryCreateThumbnail } from './thumbnails';
 import { isDriveConfigured } from './driveConfig';
 import { connectDrive, disconnectDrive, isDriveConnected, getDriveAccountEmail } from './driveService';
 import {
@@ -165,8 +166,13 @@ export default function SettingsModal({ onClose }) {
         setImageProcessStatus(`Processing ${index + 1} of ${pendingPages.length}: ${page.title || 'Untitled page'}`);
         try {
           const transparentImage = await removeWhiteBackground(page.imageUrl);
+          const thumbnailUrl = await tryCreateThumbnail(transparentImage);
           await db.pages.update(page.id, {
             imageUrl: transparentImage,
+            // Replace any stale thumbnail of the unprocessed image; null
+            // clears it so the gallery falls back to the full image and the
+            // backfill retries it on the next app open.
+            thumbnailUrl: thumbnailUrl || null,
             whiteBackgroundProcessed: true,
           });
           processed++;

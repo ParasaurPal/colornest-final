@@ -8,6 +8,7 @@ import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding';
 import { triggerBackgroundSync, deletePageWithDrive, subscribeScanProgress } from './driveSync';
+import { tryCreateThumbnail } from './thumbnails';
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -58,6 +59,36 @@ function App() {
       window.removeEventListener('beforeinstallprompt', captureInstall);
       document.removeEventListener('fullscreenchange', updateFullscreen);
     };
+  }, []);
+
+  // One-time backfill for pages saved before thumbnails existed: generate a
+  // thumbnail for each page that has an image but no thumbnail yet, a few
+  // at a time with a yield between batches so the UI stays responsive.
+  // It runs in the background without blocking first paint, never touches
+  // pages that already have a thumbnail, and silently skips images that
+  // fail to load (those pages keep using the full image in the gallery).
+  useEffect(() => {
+    let cancelled = false;
+    const backfillThumbnails = async () => {
+      try {
+        const pending = await db.pages.filter(page => page.imageUrl && !page.thumbnailUrl).toArray();
+        const batchSize = 3;
+        for (let i = 0; i < pending.length && !cancelled; i += batchSize) {
+          const batch = pending.slice(i, i + batchSize);
+          await Promise.all(batch.map(async (page) => {
+            const thumbnailUrl = await tryCreateThumbnail(page.imageUrl);
+            if (thumbnailUrl && !cancelled) {
+              await db.pages.update(page.id, { thumbnailUrl });
+            }
+          }));
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      } catch (error) {
+        console.warn('Thumbnail backfill failed:', error);
+      }
+    };
+    backfillThumbnails();
+    return () => { cancelled = true; };
   }, []);
 
   const completeTutorial = async () => {
@@ -266,7 +297,7 @@ function App() {
         {sortedPages.map(page => (
           <article key={page.id} className="bg-white dark:bg-gray-800 rounded-[24px] p-2 pb-3 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col relative">
             <div className="relative h-40 bg-gray-50 dark:bg-gray-900 rounded-[18px] overflow-hidden">
-              <img src={page.imageUrl} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
+              <img src={page.thumbnailUrl || page.imageUrl} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
               <button onClick={async () => { await db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); triggerBackgroundSync(true); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
                 <Heart size={13} fill={page.isFavorite === 1 ? '#ec4899' : 'none'} color={page.isFavorite === 1 ? '#ec4899' : '#9ca3af'} />
               </button>
