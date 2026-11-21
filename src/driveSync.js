@@ -353,7 +353,7 @@ export async function syncDrive() {
         const pdfBlob = await downloadFile(file.id);
         const pageImages = await convertPdfToImages(await pdfBlob.arrayBuffer());
         if (!pageImages.length) throw new Error('The PDF did not contain any pages.');
-        const baseTitle = file.name.replace(/\\.pdf$/i, '') || 'Imported PDF';
+        const baseTitle = file.name.replace(/\.pdf$/i, '') || 'Imported PDF';
         const now = Date.now();
         const newPages = pageImages.map((imageUrl, pageIndex) => ({
           updatedAt: now,
