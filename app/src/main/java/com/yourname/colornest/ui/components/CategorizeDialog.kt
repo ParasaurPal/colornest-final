@@ -48,10 +48,10 @@ fun CategorizeDialog(
 ) {
     if (page == null) return
 
-    var title by remember { mutableStateOf(page.title) }
-    var selectedCategoryId by remember { mutableStateOf(page.categoryId) }
-    var tagsText by remember { mutableStateOf(page.tags.joinToString(", ")) }
-    var categoryDropdownExpanded by remember { mutableStateOf(false) }
+    var title by remember(page.id) { mutableStateOf(page.title) }
+    var selectedCategoryId by remember(page.id) { mutableStateOf(page.categoryId) }
+    var tagsText by remember(page.id) { mutableStateOf(page.tags.joinToString(", ")) }
+    var categoryDropdownExpanded by remember(page.id) { mutableStateOf(false) }
 
     fun buildCategoryOptions(parentId: Long? = null, depth: Int = 0): List<Pair<Category, Int>> {
         val list = mutableListOf<Pair<Category, Int>>()

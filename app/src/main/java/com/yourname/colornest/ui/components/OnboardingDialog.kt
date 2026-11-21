@@ -119,7 +119,7 @@ fun OnboardingDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "ColorNest is NOT a digital art app, a coloring app, or a photo storage app.\n\n" +
-                                        "It is a beautiful catalog designed to help you organize the physical coloring books, printed pages, and line art you already own.\n\n" +
+                                        "It is a clean catalog designed to help you organize the physical coloring books, printed pages, and line art you already own.\n\n" +
                                         "Think of it as a library index for your hobby, not the drawing canvas itself.",
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
@@ -127,12 +127,11 @@ fun OnboardingDialog(
                             )
                         }
                         1 -> {
-                            Text("Track Your Progress", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Organize & Share", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Upload photos of your pages, and sort them yourself into deeply nested folders (like Animals > Birds > Owls).\n\n" +
-                                        "When you are done coloring a page, you can mark it as Completed.\n\n" +
-                                        "This gives you a dedicated Finished section, allowing you to easily browse and show off all your finished artwork in one beautiful gallery at once.",
+                                "Import photos or PDF coloring books, then sort them with custom titles, tags, and deeply nested folders (like Animals > Birds > Owls).\n\n" +
+                                        "When you are ready to color digitally, open or share any page directly as a new image into drawing apps like Clip Studio Paint.",
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

@@ -10,7 +10,6 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.PrepopulateCategories
-import com.yourname.colornest.data.drive.DriveSyncManager
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.data.model.Setting
@@ -26,11 +25,8 @@ class ColorNestRepository(private val context: Context) {
     private val db = ColorNestDatabase.getDatabase(context)
     val pageDao = db.pageDao()
     val categoryDao = db.categoryDao()
+    val learnedPatternDao = db.learnedPatternDao()
     val settingDao = db.settingDao()
-
-    // Google Drive sync. All of its per-page calls are best-effort and never
-    // throw, so local edits always succeed even when offline.
-    val driveSync = DriveSyncManager(context, pageDao, categoryDao, settingDao)
 
     private val imagesDir: File by lazy {
         val dir = File(context.filesDir, "colornest")
@@ -64,9 +60,6 @@ class ColorNestRepository(private val context: Context) {
     }
 
     suspend fun deletePage(page: Page) = withContext(Dispatchers.IO) {
-        // Move the Drive copy to trash (never a permanent delete) and record
-        // a tombstone so a later scan does not re-download it.
-        driveSync.trashPageFile(page)
         val file = File(page.imageUrl)
         if (file.exists()) {
             file.delete()
@@ -84,29 +77,19 @@ class ColorNestRepository(private val context: Context) {
         val updated = page.copy(
             title = newTitle,
             categoryId = newCategoryId,
-            isUncategorized = false,
+            isUncategorized = newCategoryId == null,
+            isProcessingAi = false,
+            aiStatus = null,
             tags = tags
         )
         pageDao.updatePage(updated)
-
-        // Move/rename the Drive copy to match the new title and category.
-        driveSync.propagatePageChange(updated)
     }
 
-    suspend fun clearAllTags() = withContext(Dispatchers.IO) {
-        pageDao.clearAllTags()
-    }
-
-    suspend fun wipeAllData(deleteCloud: Boolean = false) = withContext(Dispatchers.IO) {
-        // Trash the whole ColorNest folder in Drive first (trash only — the
-        // files stay recoverable from the Drive trash for 30 days). The local
-        // wipe below clears the stored Drive account too.
-        if (deleteCloud) {
-            driveSync.trashRootFolder()
-        }
+    suspend fun wipeAllData() = withContext(Dispatchers.IO) {
         imagesDir.listFiles()?.forEach { it.delete() }
         pageDao.deleteAllPages()
         categoryDao.deleteAllCategories()
+        learnedPatternDao.deleteAllPatterns()
         settingDao.deleteAllSettings()
 
         // Re-seed default 5 categories
@@ -126,15 +109,26 @@ class ColorNestRepository(private val context: Context) {
         val maxDimension = max(bitmap.width, bitmap.height)
         val working = if (maxDimension > 2000) {
             val scale = 2000f / maxDimension
-            Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true)
-        } else bitmap
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * scale).toInt().coerceAtLeast(1),
+                (bitmap.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else {
+            bitmap
+        }
         val width = working.width
         val height = working.height
         val pixels = IntArray(width * height)
         working.getPixels(pixels, 0, width, 0, 0, width, height)
         for (index in pixels.indices) {
             val pixel = pixels[index]
-            val luminance = (0.2126 * AndroidColor.red(pixel) + 0.7152 * AndroidColor.green(pixel) + 0.0722 * AndroidColor.blue(pixel)).toInt()
+            val luminance = (
+                0.2126 * AndroidColor.red(pixel) +
+                    0.7152 * AndroidColor.green(pixel) +
+                    0.0722 * AndroidColor.blue(pixel)
+                ).toInt()
             val alpha = (255 - luminance).coerceIn(0, 255)
             pixels[index] = AndroidColor.argb(alpha, 0, 0, 0)
         }
@@ -178,7 +172,7 @@ class ColorNestRepository(private val context: Context) {
 
         if (mimeType.contains("pdf", ignoreCase = true) || fileName.endsWith(".pdf", ignoreCase = true)) {
             onProgress("Reading PDF...", 10)
-            convertPdfToPages(uri, fileName, removeWhiteBackground, onProgress)
+            convertPdfToPages(uri, removeWhiteBackground, onProgress)
         } else {
             onProgress("Compressing Image...", 40)
             var inputStream: InputStream? = null
@@ -187,14 +181,20 @@ class ColorNestRepository(private val context: Context) {
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 if (bitmap != null) {
                     onProgress("Saving Image...", 80)
-                    val savedPath = if (removeWhiteBackground) saveTransparentLineArt(bitmap, "img") else saveScaledBitmap(bitmap, "img")
+                    val savedPath = if (removeWhiteBackground) {
+                        saveTransparentLineArt(bitmap, "img")
+                    } else {
+                        saveScaledBitmap(bitmap, "img")
+                    }
                     bitmap.recycle()
 
                     pageDao.insertPage(
                         Page(
                             title = "",
                             imageUrl = savedPath,
-                            isUncategorized = true
+                            isUncategorized = true,
+                            isProcessingAi = false,
+                            aiStatus = null
                         )
                     )
                 }
@@ -206,7 +206,6 @@ class ColorNestRepository(private val context: Context) {
 
     private fun convertPdfToPages(
         uri: Uri,
-        pdfName: String,
         removeWhiteBackground: Boolean,
         onProgress: (text: String, percent: Int) -> Unit
     ) {
@@ -221,7 +220,6 @@ class ColorNestRepository(private val context: Context) {
             val fileDescriptor = ParcelFileDescriptor.open(tempPdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
             val pdfRenderer = PdfRenderer(fileDescriptor)
             val pageCount = pdfRenderer.pageCount
-            // PDF page titles remain blank until the user enters one.
 
             for (i in 0 until pageCount) {
                 val percent = ((i + 1) * 100) / pageCount
@@ -232,13 +230,19 @@ class ColorNestRepository(private val context: Context) {
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
 
-                val savedPath = if (removeWhiteBackground) saveTransparentLineArt(bitmap, "pdf_page") else saveScaledBitmap(bitmap, "pdf_page")
+                val savedPath = if (removeWhiteBackground) {
+                    saveTransparentLineArt(bitmap, "pdf_page")
+                } else {
+                    saveScaledBitmap(bitmap, "pdf_page")
+                }
                 bitmap.recycle()
 
                 val pageEntity = Page(
                     title = "",
                     imageUrl = savedPath,
-                    isUncategorized = true
+                    isUncategorized = true,
+                    isProcessingAi = false,
+                    aiStatus = null
                 )
                 kotlinx.coroutines.runBlocking {
                     pageDao.insertPage(pageEntity)

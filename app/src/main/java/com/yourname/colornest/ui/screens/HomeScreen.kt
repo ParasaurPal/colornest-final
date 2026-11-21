@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yourname.colornest.ui.components.AddPageDialog
@@ -204,16 +204,6 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .testTag("search_text_field")
                     )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        FilterChip(
-                            selected = uiState.showNoTagsOnly,
-                            onClick = { viewModel.toggleShowNoTagsOnly() },
-                            label = { Text("No tags only") },
-                            modifier = Modifier.testTag("no_tags_filter_chip")
-                        )
-                    }
                 }
             },
             floatingActionButton = {
@@ -246,17 +236,17 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = if (uiState.searchQuery.isNotBlank() || uiState.showNoTagsOnly) "No coloring pages found" else "No pages yet",
+                            text = if (uiState.searchQuery.isNotBlank()) "No coloring pages found" else "No pages yet",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = if (uiState.searchQuery.isNotBlank()) "Try searching for a different title or tag" else if (uiState.showNoTagsOnly) "Every page has at least one tag" else "Tap the + button below to add your first coloring page or PDF!",
+                            text = if (uiState.searchQuery.isNotBlank()) "Try searching for a different title or tag" else "Tap the + button below to add your first coloring page or PDF!",
                             fontSize = 14.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            textAlign = TextAlign.Center
                         )
                     }
                 } else {
@@ -312,22 +302,11 @@ fun HomeScreen(
         deleteCloud = uiState.deleteCloud,
         confirmDeleteText = uiState.confirmDeleteText,
         onSeedCategories = { viewModel.seedMassiveCategories() },
-        onClearAllTags = { viewModel.clearAllTags() },
         onSetWipeStep = { viewModel.setWipeStep(it) },
         onSetDeleteCloud = { viewModel.setDeleteCloud(it) },
         onSetConfirmText = { viewModel.setConfirmDeleteText(it) },
         onWipeApp = { viewModel.wipeApp() },
-        onClose = { viewModel.setSettingsOpen(false) },
-        driveConnected = uiState.driveConnected,
-        driveAccountName = uiState.driveAccountName,
-        driveStatus = uiState.driveStatus,
-        driveLastSync = uiState.driveLastSync,
-        isSyncing = uiState.isSyncing,
-        driveScanOnOpen = uiState.driveScanOnOpen,
-        onDriveAccountSelected = { viewModel.connectDrive(it) },
-        onDriveDisconnect = { viewModel.disconnectDrive() },
-        onDriveSyncNow = { viewModel.syncDriveNow() },
-        onSetDriveScanOnOpen = { viewModel.setDriveScanOnOpen(it) }
+        onClose = { viewModel.setSettingsOpen(false) }
     )
 
     // Onboarding Tutorial Dialog
