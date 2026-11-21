@@ -29,6 +29,7 @@ import {
 import { DRIVE_ROOT_FOLDER_NAME, DRIVE_UNTAGGED_FOLDER_NAME } from './driveConfig';
 import { convertPdfToImages } from './pdfConverter';
 import { removeWhiteBackground } from './whiteBackground';
+import { tryCreateThumbnail } from './thumbnails';
 
 const KEY_SCAN_ON_OPEN = 'driveScanOnOpen';
 const KEY_LAST_SYNC = 'driveLastSync';
@@ -360,6 +361,7 @@ export async function syncDrive() {
         }
         const baseTitle = file.name.replace(/\.pdf$/i, '') || 'Imported PDF';
         const now = Date.now();
+        const pageThumbnails = await Promise.all(transparentPageImages.map((imageUrl) => tryCreateThumbnail(imageUrl)));
         const newPages = transparentPageImages.map((imageUrl, pageIndex) => ({
           updatedAt: now,
           title: `${baseTitle} - Page ${pageIndex + 1}`,
@@ -368,6 +370,7 @@ export async function syncDrive() {
           time: 'TBD',
           tool: 'TBD',
           imageUrl,
+          ...(pageThumbnails[pageIndex] ? { thumbnailUrl: pageThumbnails[pageIndex] } : {}),
           isFavorite: 0,
           isCompleted: 0,
           progress: 0,
@@ -432,6 +435,7 @@ export async function syncDrive() {
     const extension = remote.name.includes('.') ? remote.name.substring(remote.name.lastIndexOf('.') + 1) : 'jpg';
     const blob = await downloadFile(remote.id);
     const localImageUrl = await removeWhiteBackground(blob);
+    const thumbnailUrl = await tryCreateThumbnail(localImageUrl);
     await db.pages.add({
       updatedAt: Number(metadata?.updatedAt || Date.now()),
       title: metadata?.title || (remote.name.includes('.') ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page' : remote.name),
@@ -440,6 +444,7 @@ export async function syncDrive() {
       time: metadata?.time || 'TBD',
       tool: metadata?.tool || 'TBD',
       imageUrl: localImageUrl,
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
       isFavorite: metadata?.isFavorite ? 1 : 0,
       isCompleted: metadata?.isCompleted ? 1 : 0,
       progress: Number(metadata?.progress || 0),

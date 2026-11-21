@@ -5,6 +5,7 @@ import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { convertPdfToImages } from './pdfConverter';
 import { triggerBackgroundSync } from './driveSync';
 import { removeWhiteBackground } from './whiteBackground';
+import { tryCreateThumbnail } from './thumbnails';
 
 export default function AddPageModal({ isOpen, onClose }) {
   const fileInputRef = useRef(null);
@@ -16,6 +17,7 @@ export default function AddPageModal({ isOpen, onClose }) {
 
   const savePageToDb = async (base64Data, title = 'Untitled page') => {
     const transparentImage = await removeWhiteBackground(base64Data);
+    const thumbnailUrl = await tryCreateThumbnail(transparentImage);
     await db.pages.add({
       title,
       categoryId: null,
@@ -23,6 +25,7 @@ export default function AddPageModal({ isOpen, onClose }) {
       time: 'TBD',
       tool: 'TBD',
       imageUrl: transparentImage,
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
       isFavorite: 0,
       isCompleted: 0,
       progress: 0,
