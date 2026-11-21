@@ -1,10 +1,9 @@
-const CACHE_NAME = "colornest-pwa-v3";
+const CACHE_NAME = "colornest-pwa-v4";
 const BASE_URL = new URL(self.registration.scope).pathname;
 const APP_SHELL = [
   BASE_URL,
   BASE_URL + "manifest.webmanifest",
   BASE_URL + "icons/colornest.svg",
-  BASE_URL + "pdf.worker.min.mjs",
 ];
 
 self.addEventListener("install", (event) => {
@@ -46,8 +45,7 @@ self.addEventListener("fetch", (event) => {
   const isAppAsset =
     url.pathname.startsWith(BASE_URL + "assets/") ||
     url.pathname.startsWith(BASE_URL + "icons/") ||
-    url.pathname === BASE_URL + "manifest.webmanifest" ||
-    url.pathname === BASE_URL + "pdf.worker.min.mjs";
+    url.pathname === BASE_URL + "manifest.webmanifest";
 
   if (isAppAsset) {
     event.respondWith((async () => {
