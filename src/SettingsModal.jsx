@@ -133,7 +133,7 @@ export default function SettingsModal({ onClose }) {
       setDriveStatus("Connecting…");
       await connectDrive();
       await refreshDriveState();
-      setDriveStatus("Connected — starting first sync…");
+      setDriveStatus("Connected — importing new Drive files…");
       handleDriveSyncNow();
     } catch (e) {
       setDriveStatus("Could not connect: " + e.message);
@@ -149,7 +149,7 @@ export default function SettingsModal({ onClose }) {
   const handleDriveSyncNow = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    setDriveStatus("Syncing with Google Drive…");
+    setDriveStatus("Checking for new Drive files…");
     try {
       const result = await syncDrive();
       setDriveStatus(formatSyncSummary(result));
@@ -268,7 +268,7 @@ export default function SettingsModal({ onClose }) {
               <>
                 <div className="flex gap-2 mt-3">
                   <button onClick={handleDriveSyncNow} disabled={isSyncing} className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">
-                    {isSyncing ? 'Syncing…' : 'Sync now'}
+                    {isSyncing ? 'Syncing…' : 'Import new files'}
                   </button>
                   <button onClick={handleDriveDisconnect} className="flex-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white py-2 rounded-lg font-bold">
                     Disconnect
@@ -276,9 +276,9 @@ export default function SettingsModal({ onClose }) {
                 </div>
                 <label className="flex items-center gap-3 mt-3 cursor-pointer">
                   <input type="checkbox" checked={driveScanOnOpen} onChange={(e) => handleDriveScanToggle(e.target.checked)} className="w-5 h-5 accent-purple-600" />
-                  <span className="text-sm font-bold text-gray-800 dark:text-white">Scan Drive on open</span>
+                  <span className="text-sm font-bold text-gray-800 dark:text-white">Import from Drive on first open</span>
                 </label>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Check Drive each time the app opens. Add PDFs to ColorNest/PDF Inbox; ColorNest converts each page into a coloring page and moves the original into ColorNest/Processed PDFs. Image files added to category folders are also imported.</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Runs one initial import when ColorNest is first opened on this device. It adds new Drive images and converts PDFs from ColorNest/PDF Inbox, moving originals to Processed PDFs. Later opens do not scan again. Sync now checks for newly added files only; existing pages are never re-uploaded, renamed, moved, or deleted.</p>
               </>
             ) : (
               <button onClick={handleDriveConnect} disabled={!isDriveConfigured()} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">
