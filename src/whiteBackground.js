@@ -1,21 +1,19 @@
-// Removes near-white, low-saturation pixels while retaining dark line art
-// and colored details. Output is PNG so transparency is preserved.
+// Converts white and near-white pixels to transparency, including soft anti-aliased
+// edges. PNG output preserves the alpha channel.
 export async function removeWhiteBackground(source, {
-  threshold = 238,
-  softness = 17,
-  colorTolerance = 20,
+  fadeStart = 205,
+  transparentAt = 245,
+  colorTolerance = 65,
 } = {}) {
   let image;
   let objectUrl = null;
   try {
-    if (source instanceof Blob) {
-      objectUrl = URL.createObjectURL(source);
-    }
+    if (source instanceof Blob) objectUrl = URL.createObjectURL(source);
     const src = objectUrl || source;
     image = await new Promise((resolve, reject) => {
       const element = new Image();
       element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error('Could not load image for background removal.'));
+      element.onerror = () => reject(new Error('Could not load image for white-to-transparency conversion.'));
       element.src = src;
     });
 
@@ -31,20 +29,23 @@ export async function removeWhiteBackground(source, {
     context.drawImage(image, 0, 0);
     const frame = context.getImageData(0, 0, width, height);
     const pixels = frame.data;
+    const range = Math.max(1, transparentAt - fadeStart);
 
     for (let i = 0; i < pixels.length; i += 4) {
       const red = pixels[i];
       const green = pixels[i + 1];
       const blue = pixels[i + 2];
-      const lightest = Math.min(red, green, blue);
-      const darkest = Math.max(red, green, blue);
-      const neutral = darkest - lightest <= colorTolerance;
-      if (!neutral || lightest < threshold) continue;
+      const minChannel = Math.min(red, green, blue);
+      const maxChannel = Math.max(red, green, blue);
+      const colorSpread = maxChannel - minChannel;
 
-      const alpha = Math.max(0, Math.min(255,
-        Math.round(255 * (1 - (lightest - threshold) / softness))
-      ));
-      pixels[i + 3] = Math.min(pixels[i + 3], alpha);
+      // Only remove neutral whites / light greys, not saturated colored artwork.
+      if (colorSpread > colorTolerance || minChannel <= fadeStart) continue;
+
+      const remainingAlpha = minChannel >= transparentAt
+        ? 0
+        : Math.round(255 * (1 - (minChannel - fadeStart) / range));
+      pixels[i + 3] = Math.min(pixels[i + 3], remainingAlpha);
     }
 
     context.putImageData(frame, 0, 0);
