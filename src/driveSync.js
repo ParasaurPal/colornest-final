@@ -28,6 +28,7 @@ import {
 } from './driveService';
 import { DRIVE_ROOT_FOLDER_NAME, DRIVE_UNTAGGED_FOLDER_NAME } from './driveConfig';
 import { convertPdfToImages } from './pdfConverter';
+import { removeWhiteBackground } from './whiteBackground';
 
 const KEY_SCAN_ON_OPEN = 'driveScanOnOpen';
 const KEY_LAST_SYNC = 'driveLastSync';
@@ -353,9 +354,10 @@ export async function syncDrive() {
         const pdfBlob = await downloadFile(file.id);
         const pageImages = await convertPdfToImages(await pdfBlob.arrayBuffer());
         if (!pageImages.length) throw new Error('The PDF did not contain any pages.');
+        const transparentPageImages = await Promise.all(pageImages.map(imageUrl => removeWhiteBackground(imageUrl)));
         const baseTitle = file.name.replace(/\.pdf$/i, '') || 'Imported PDF';
         const now = Date.now();
-        const newPages = pageImages.map((imageUrl, pageIndex) => ({
+        const newPages = transparentPageImages.map((imageUrl, pageIndex) => ({
           updatedAt: now,
           title: `${baseTitle} - Page ${pageIndex + 1}`,
           categoryId: null,
@@ -425,7 +427,7 @@ export async function syncDrive() {
     }
     const extension = remote.name.includes('.') ? remote.name.substring(remote.name.lastIndexOf('.') + 1) : 'jpg';
     const blob = await downloadFile(remote.id);
-    const localImageUrl = await saveDownloadedImage(blob);
+    const localImageUrl = await removeWhiteBackground(blob);
     await db.pages.add({
       updatedAt: Number(metadata?.updatedAt || Date.now()),
       title: metadata?.title || (remote.name.includes('.') ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page' : remote.name),
