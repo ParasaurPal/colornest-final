@@ -374,6 +374,7 @@ export async function syncDrive() {
           isUncategorized: 1,
           driveFileId: null,
           tags: [],
+          whiteBackgroundProcessed: true,
         }));
         await db.transaction('rw', db.pages, db.settings, async () => {
           await db.pages.bulkAdd(newPages);
