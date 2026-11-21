@@ -10,7 +10,7 @@ export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 // DRIVE_READONLY lets it see images the user drops into the folders
 // themselves — DRIVE_FILE alone cannot see those.
 export const DRIVE_SCOPES =
-  'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly';
+  'https://www.googleapis.com/auth/drive';
 
 export const DRIVE_ROOT_FOLDER_NAME = 'ColorNest';
 export const DRIVE_UNTAGGED_FOLDER_NAME = 'Untagged';
