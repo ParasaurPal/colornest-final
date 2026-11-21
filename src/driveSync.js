@@ -31,6 +31,7 @@ import { convertPdfToImages } from './pdfConverter';
 
 const KEY_SCAN_ON_OPEN = 'driveScanOnOpen';
 const KEY_LAST_SYNC = 'driveLastSync';
+const KEY_INITIAL_IMPORT_DONE = 'driveInitialImportDone';
 const KEY_TOMBSTONES = 'driveTombstones';
 const KEY_PROCESSED_PDF_IDS = 'driveProcessedPdfIds';
 const PDF_INBOX_FOLDER_NAME = 'PDF Inbox';
@@ -446,6 +447,7 @@ export async function syncDrive() {
   }
 
   await setSetting(KEY_LAST_SYNC, Date.now());
+  await setSetting(KEY_INITIAL_IMPORT_DONE, true);
   const result = { notConnected: false, uploaded: 0, downloaded, moved: 0, renamed: 0, removedLocal: 0, metadataUploaded: 0, metadataDownloaded: 0, pdfsConverted, pdfPagesCreated, pdfsArchived };
   finishScanProgress({ message: 'New Drive files imported', result });
   return result;
@@ -455,16 +457,19 @@ export async function syncDrive() {
  * Fire-and-forget background sync (used on app open and after imports).
  * Never throws; concurrent calls share one in-flight sync.
  */
-export function triggerBackgroundSync(force = false) {
+export function triggerBackgroundSync(_force = false) {
   if (syncInFlight) return syncInFlight;
   syncInFlight = (async () => {
     try {
       if (!isDriveConnected()) return null;
-      if (!force && !(await isScanOnOpenEnabled())) return null;
+      if (!(await isScanOnOpenEnabled())) return null;
+      // Startup import is deliberately one-time. Reopening the app or editing
+      // a local page must never trigger another full-library scan.
+      if (await getSetting(KEY_INITIAL_IMPORT_DONE)) return null;
       return await syncDrive();
     } catch (e) {
-      console.log('Background Drive sync failed:', e.message);
-      finishScanProgress({ active: false, error: true, message: `Scan failed: ${e.message}` });
+      console.log('Initial Drive import failed:', e.message);
+      finishScanProgress({ active: false, error: true, message: `Import failed: ${e.message}` });
       return null;
     } finally {
       syncInFlight = null;
