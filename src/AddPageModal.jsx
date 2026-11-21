@@ -22,7 +22,7 @@ export default function AddPageModal({ isOpen, onClose }) {
     await db.pages.add({
       title: title, categoryId: null, complexity: "Beginner", time: "TBD", tool: "TBD",
       imageUrl: finalImageUrl, isFavorite: 0, isCompleted: 0, progress: 0, isUncategorized: 1,
-      tags: [], syncId: globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`, updatedAt: Date.now()
+      tags: [], whiteBackgroundProcessed: true, syncId: globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`, updatedAt: Date.now()
     });
   };
 
