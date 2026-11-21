@@ -35,6 +35,7 @@ const KEY_TOMBSTONES = 'driveTombstones';
 const KEY_PROCESSED_PDF_IDS = 'driveProcessedPdfIds';
 const PDF_INBOX_FOLDER_NAME = 'PDF Inbox';
 const PROCESSED_PDFS_FOLDER_NAME = 'Processed PDFs';
+const METADATA_FOLDER_NAME = 'Metadata';
 const MAX_TOMBSTONES = 500;
 
 let syncInFlight = null;
@@ -208,7 +209,7 @@ function buildPageMetadata(page, categories) {
   };
 }
 
-async function syncPageMetadata(rootId, remoteFiles) {
+async function syncPageMetadata(rootId, metadataFolderId, remoteFiles) {
   const categories = await db.categories.toArray();
   const pages = await db.pages.toArray();
   const remoteByDriveId = new Map();
@@ -276,11 +277,14 @@ async function syncPageMetadata(rootId, remoteFiles) {
       const metadata = buildPageMetadata(page, categories);
       const name = pageMetadataName(syncId);
       const blob = new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' });
-      const existing = remoteEntry?.file || await findFileByName(name, rootId);
+      const existing = remoteEntry?.file || await findFileByName(name, metadataFolderId) || await findFileByName(name, rootId);
       if (existing) {
+        if (!(existing.parents || []).includes(metadataFolderId)) {
+          await moveFile(existing.id, existing.parents || [], metadataFolderId);
+        }
         await updateFileContent(existing.id, blob, 'application/json');
       } else {
-        await uploadFile(blob, name, rootId, 'application/json');
+        await uploadFile(blob, name, metadataFolderId, 'application/json');
       }
       metadataUploaded++;
     }
@@ -327,6 +331,7 @@ export async function syncDrive() {
 
   reportScanProgress({ phase: 'connect', percent: 2, message: 'Connecting to Google Drive…' });
   const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+  const metadataFolderId = await getOrCreateFolder(METADATA_FOLDER_NAME, rootId);
   const untaggedId = await getOrCreateFolder(DRIVE_UNTAGGED_FOLDER_NAME, rootId);
   const pdfInboxId = await getOrCreateFolder(PDF_INBOX_FOLDER_NAME, rootId);
   const processedPdfsId = await getOrCreateFolder(PROCESSED_PDFS_FOLDER_NAME, rootId);
@@ -437,7 +442,7 @@ export async function syncDrive() {
       if (state === 'trashed') {
         await db.pages.delete(page.id);
         if (page.syncId) {
-          const metadataFile = await findFileByName(pageMetadataName(page.syncId), rootId);
+          const metadataFile = await findFileByName(pageMetadataName(page.syncId), metadataFolderId) || await findFileByName(pageMetadataName(page.syncId), rootId);
           if (metadataFile) await trashFile(metadataFile.id).catch(() => {});
         }
         removedLocal++;
@@ -502,7 +507,7 @@ export async function syncDrive() {
   }
 
   reportScanProgress({ phase: 'metadata', percent: 95, message: 'Updating page details…' });
-  const metadataResult = await syncPageMetadata(rootId, remoteFiles);
+  const metadataResult = await syncPageMetadata(rootId, metadataFolderId, remoteFiles);
   metadataUploaded = metadataResult.metadataUploaded;
   metadataDownloaded = metadataResult.metadataDownloaded;
 
@@ -550,7 +555,8 @@ export async function trashPageFile(page) {
     if (page.syncId) {
       const rootId = await findFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
       if (rootId) {
-        const metadataFile = await findFileByName(pageMetadataName(page.syncId), rootId);
+        const metadataFolderId = await findFolder(METADATA_FOLDER_NAME, rootId);
+        const metadataFile = (metadataFolderId ? await findFileByName(pageMetadataName(page.syncId), metadataFolderId) : null) || await findFileByName(pageMetadataName(page.syncId), rootId);
         if (metadataFile) await trashFile(metadataFile.id);
       }
     }
