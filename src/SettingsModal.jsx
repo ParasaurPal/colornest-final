@@ -278,7 +278,7 @@ export default function SettingsModal({ onClose }) {
                   <input type="checkbox" checked={driveScanOnOpen} onChange={(e) => handleDriveScanToggle(e.target.checked)} className="w-5 h-5 accent-purple-600" />
                   <span className="text-sm font-bold text-gray-800 dark:text-white">Scan Drive on open</span>
                 </label>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Check the Drive folders for images you added yourself each time the app opens.</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Check Drive each time the app opens. Add PDFs to ColorNest/PDF Inbox; ColorNest converts each page into a coloring page and moves the original into ColorNest/Processed PDFs. Image files added to category folders are also imported.</p>
               </>
             ) : (
               <button onClick={handleDriveConnect} disabled={!isDriveConfigured()} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">
