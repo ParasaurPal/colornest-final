@@ -15,6 +15,7 @@ import {
   getOrCreateFolder,
   findFolder,
   listTree,
+  listChildren,
   uploadFile,
   downloadFile,
   moveFile,
@@ -26,10 +27,14 @@ import {
   updateFileContent,
 } from './driveService';
 import { DRIVE_ROOT_FOLDER_NAME, DRIVE_UNTAGGED_FOLDER_NAME } from './driveConfig';
+import { convertPdfToImages } from './pdfConverter';
 
 const KEY_SCAN_ON_OPEN = 'driveScanOnOpen';
 const KEY_LAST_SYNC = 'driveLastSync';
 const KEY_TOMBSTONES = 'driveTombstones';
+const KEY_PROCESSED_PDF_IDS = 'driveProcessedPdfIds';
+const PDF_INBOX_FOLDER_NAME = 'PDF Inbox';
+const PROCESSED_PDFS_FOLDER_NAME = 'Processed PDFs';
 const MAX_TOMBSTONES = 500;
 
 let syncInFlight = null;
@@ -285,6 +290,8 @@ async function syncPageMetadata(rootId, remoteFiles) {
 export function formatSyncSummary(result) {
   if (result.notConnected) return 'Not connected to Google Drive';
   const parts = [];
+  if (result.pdfsConverted > 0) parts.push(`${result.pdfsConverted} PDFs converted (${result.pdfPagesCreated} pages)`);
+  if (result.pdfsArchived > 0) parts.push(`${result.pdfsArchived} original PDFs archived`);
   if (result.uploaded > 0) parts.push(`${result.uploaded} uploaded`);
   if (result.downloaded > 0) parts.push(`${result.downloaded} downloaded`);
   if (result.moved > 0) parts.push(`${result.moved} moved`);
@@ -316,6 +323,53 @@ export async function syncDrive() {
 
   const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
   const untaggedId = await getOrCreateFolder(DRIVE_UNTAGGED_FOLDER_NAME, rootId);
+  const pdfInboxId = await getOrCreateFolder(PDF_INBOX_FOLDER_NAME, rootId);
+  const processedPdfsId = await getOrCreateFolder(PROCESSED_PDFS_FOLDER_NAME, rootId);
+  let pdfsConverted = 0;
+  let pdfPagesCreated = 0;
+  let pdfsArchived = 0;
+
+  // Convert PDFs placed in ColorNest/PDF Inbox. Record each completed
+  // conversion before moving the source so a failed move never duplicates pages.
+  const processedPdfIds = new Set((await getSetting(KEY_PROCESSED_PDF_IDS) || '').split(',').filter(Boolean));
+  const inboxFiles = await listChildren(pdfInboxId);
+  for (const file of inboxFiles) {
+    if (file.mimeType !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) continue;
+    try {
+      if (!processedPdfIds.has(file.id)) {
+        const pdfBlob = await downloadFile(file.id);
+        const pageImages = await convertPdfToImages(await pdfBlob.arrayBuffer());
+        if (!pageImages.length) throw new Error('The PDF did not contain any pages.');
+        const baseTitle = file.name.replace(/\\.pdf$/i, '') || 'Imported PDF';
+        const now = Date.now();
+        for (let index = 0; index < pageImages.length; index++) {
+          await db.pages.add({
+            updatedAt: now,
+            title: `${baseTitle} - Page ${index + 1}`,
+            categoryId: null,
+            complexity: 'Beginner',
+            time: 'TBD',
+            tool: 'TBD',
+            imageUrl: pageImages[index],
+            isFavorite: 0,
+            isCompleted: 0,
+            progress: 0,
+            isUncategorized: 1,
+            driveFileId: null,
+            tags: [],
+          });
+        }
+        processedPdfIds.add(file.id);
+        await setSetting(KEY_PROCESSED_PDF_IDS, [...processedPdfIds].join(','));
+        pdfsConverted++;
+        pdfPagesCreated += pageImages.length;
+      }
+      await moveFile(file.id, file.parentIds, processedPdfsId);
+      pdfsArchived++;
+    } catch (error) {
+      console.warn(`Could not process PDF ${file.name}:`, error);
+    }
+  }
 
   // Ensure every category has a folder, mirroring the nested tree.
   const categories = await db.categories.toArray();
@@ -429,7 +483,7 @@ export async function syncDrive() {
   metadataDownloaded = metadataResult.metadataDownloaded;
 
   await setSetting(KEY_LAST_SYNC, Date.now());
-  return { notConnected: false, uploaded, downloaded, moved, renamed, removedLocal, metadataUploaded, metadataDownloaded };
+  return { notConnected: false, uploaded, downloaded, moved, renamed, removedLocal, metadataUploaded, metadataDownloaded, pdfsConverted, pdfPagesCreated, pdfsArchived };
 }
 
 /**
