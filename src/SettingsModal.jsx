@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
+import { removeWhiteBackground } from './whiteBackground';
 import { isDriveConfigured } from './driveConfig';
 import { connectDrive, disconnectDrive, isDriveConnected, getDriveAccountEmail } from './driveService';
 import {
@@ -31,6 +32,10 @@ export default function SettingsModal({ onClose }) {
   const [driveScanOnOpen, setDriveScanOnOpen] = useState(true);
   const [storageUsage, setStorageUsage] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [imageProcessing, setImageProcessing] = useState(false);
+  const [imageProgress, setImageProgress] = useState({ done: 0, total: 0 });
+  const [imageProcessStatus, setImageProcessStatus] = useState('');
+  const [unprocessedImageCount, setUnprocessedImageCount] = useState(0);
 
   const refreshDriveState = async () => {
     setDriveConnected(isDriveConnected());
@@ -54,6 +59,14 @@ export default function SettingsModal({ onClose }) {
       setDriveLastSync(lastSync);
       setDriveScanOnOpen(scanOnOpen);
     })();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    db.pages.filter(page => page.whiteBackgroundProcessed !== true).count()
+      .then(count => { if (active) setUnprocessedImageCount(count); })
+      .catch(error => console.warn('Could not count unprocessed pages:', error));
     return () => { active = false; };
   }, []);
 
@@ -125,6 +138,54 @@ export default function SettingsModal({ onClose }) {
       alert('Backup restore failed: ' + error.message);
     } finally {
       setBackupBusy(false);
+    }
+  };
+
+  const handleProcessExistingImages = async () => {
+    if (imageProcessing) return;
+    try {
+      const pendingPages = await db.pages
+        .filter(page => page.whiteBackgroundProcessed !== true)
+        .toArray();
+      if (!pendingPages.length) {
+        setUnprocessedImageCount(0);
+        setImageProcessStatus('All existing pages have already been processed.');
+        return;
+      }
+      if (!window.confirm(`Remove white backgrounds from ${pendingPages.length} existing pages? This updates their stored images but keeps all page details and organization.`)) return;
+
+      setImageProcessing(true);
+      setImageProgress({ done: 0, total: pendingPages.length });
+      setImageProcessStatus('Preparing your library…');
+      let processed = 0;
+      let failed = 0;
+
+      for (let index = 0; index < pendingPages.length; index++) {
+        const page = pendingPages[index];
+        setImageProcessStatus(`Processing ${index + 1} of ${pendingPages.length}: ${page.title || 'Untitled page'}`);
+        try {
+          const transparentImage = await removeWhiteBackground(page.imageUrl);
+          await db.pages.update(page.id, {
+            imageUrl: transparentImage,
+            whiteBackgroundProcessed: true,
+          });
+          processed++;
+        } catch (error) {
+          failed++;
+          console.warn(`Could not remove white background from ${page.title || page.id}:`, error);
+        }
+        setImageProgress({ done: index + 1, total: pendingPages.length });
+      }
+
+      const remaining = await db.pages
+        .filter(page => page.whiteBackgroundProcessed !== true)
+        .count();
+      setUnprocessedImageCount(remaining);
+      setImageProcessStatus(`Finished: ${processed} processed, ${failed} failed.${remaining ? ` ${remaining} pages remain and can be retried.` : ''}`);
+    } catch (error) {
+      setImageProcessStatus('Could not process library: ' + error.message);
+    } finally {
+      setImageProcessing(false);
     }
   };
 
@@ -236,7 +297,24 @@ export default function SettingsModal({ onClose }) {
             {storageUsage && <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Browser storage: {(storageUsage.used / 1048576).toFixed(1)} MB used of {(storageUsage.quota / 1048576).toFixed(0)} MB available (estimated).</p>}
             <div className="flex gap-2">
               <button onClick={handleExportBackup} disabled={backupBusy} className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{backupBusy ? 'Working…' : 'Export backup'}</button>
-              <label className="flex-1 text-center bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white py-2 rounded-lg font-bold cursor-pointer">Restore backup<input type="file" accept="application/json,.json" onChange={handleImportBackup} disabled={backupBusy} className="hidden" /></label>
+              <label className="flex-1 text-center bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white py-2 rounded-lg font-bold cursor-pointer">Restore backup<input type="file" accept="application/json,.json" onChange={handleImportBackup} disabled={backupBusy || imageProcessing} className="hidden" /></label>
+            </div>
+            <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h4 className="text-sm font-bold text-gray-800 dark:text-white">White background removal</h4>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{unprocessedImageCount} remaining</span>
+              </div>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Process pages already in your library. Titles, categories, tags, favorites, and other details are preserved. Pages already processed by ColorNest are skipped.</p>
+              <button onClick={handleProcessExistingImages} disabled={imageProcessing || unprocessedImageCount === 0} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">
+                {imageProcessing ? `Processing ${imageProgress.done} of ${imageProgress.total}…` : unprocessedImageCount ? 'Process existing library' : 'Library already processed'}
+              </button>
+              {imageProcessing && (
+                <div className="mt-2">
+                  <div className="flex justify-between text-[11px] text-gray-500 dark:text-gray-400 mb-1"><span>Processing pages</span><span>{Math.round((imageProgress.done / Math.max(imageProgress.total, 1)) * 100)}%</span></div>
+                  <div className="h-2 rounded-full bg-purple-100 dark:bg-gray-700 overflow-hidden"><div className="h-full bg-purple-600 transition-all" style={{ width: `${(imageProgress.done / Math.max(imageProgress.total, 1)) * 100}%` }} /></div>
+                </div>
+              )}
+              {imageProcessStatus && <p className="text-xs text-gray-600 dark:text-gray-300 mt-2" role="status" aria-live="polite">{imageProcessStatus}</p>}
             </div>
           </div>
 
