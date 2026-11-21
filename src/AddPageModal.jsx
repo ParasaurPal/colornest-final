@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import imageCompression from 'browser-image-compression';
 import { db } from './db';
 import { X, Upload, Loader2, FileText } from 'lucide-react';
@@ -7,6 +7,7 @@ import { triggerBackgroundSync } from './driveSync';
 import { removeWhiteBackground } from './whiteBackground';
 
 export default function AddPageModal({ isOpen, onClose }) {
+  const fileInputRef = useRef(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressText, setProgressText] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
@@ -114,10 +115,14 @@ export default function AddPageModal({ isOpen, onClose }) {
         </button>
         <h2 className="text-2xl font-bold mb-6 text-center dark:text-white">Upload Pages</h2>
 
-        <label
-          htmlFor="colornest-page-upload"
-          aria-disabled={isProcessing}
-          className={`border-4 border-dashed border-purple-200 dark:border-purple-900 bg-purple-50 dark:bg-gray-900 rounded-3xl p-8 text-center h-64 flex flex-col items-center justify-center transition-colors ${isProcessing ? 'opacity-70 cursor-wait' : 'cursor-pointer active:bg-purple-100 dark:active:bg-gray-800'}`}
+        <button
+          type="button"
+          onClick={() => {
+            if (!isProcessing) fileInputRef.current?.click();
+          }}
+          disabled={isProcessing}
+          aria-label="Choose images or PDF files to upload"
+          className={`w-full border-4 border-dashed border-purple-200 dark:border-purple-900 bg-purple-50 dark:bg-gray-900 rounded-3xl p-8 text-center h-64 flex flex-col items-center justify-center transition-colors disabled:opacity-70 disabled:cursor-wait ${isProcessing ? '' : 'cursor-pointer active:bg-purple-100 dark:active:bg-gray-800'}`}
         >
           {isProcessing ? (
             <div className="flex flex-col items-center w-full px-4 text-purple-600 dark:text-purple-400">
@@ -139,15 +144,18 @@ export default function AddPageModal({ isOpen, onClose }) {
               <p className="text-sm mt-2 opacity-70">Images or PDFs</p>
             </div>
           )}
-        </label>
+        </button>
         <input
+          ref={fileInputRef}
           id="colornest-page-upload"
           type="file"
           accept="image/*,.pdf,application/pdf"
           multiple
           onChange={handleFileUpload}
           disabled={isProcessing}
-          className="sr-only"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="hidden"
         />
       </div>
     </div>
