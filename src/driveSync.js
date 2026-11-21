@@ -525,6 +525,7 @@ export function triggerBackgroundSync(force = false) {
       return await syncDrive();
     } catch (e) {
       console.log('Background Drive sync failed:', e.message);
+      finishScanProgress({ active: false, error: true, message: `Scan failed: ${e.message}` });
       return null;
     } finally {
       syncInFlight = null;
