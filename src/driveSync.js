@@ -447,6 +447,7 @@ export async function syncDrive() {
       driveFileId: remote.id,
       syncId: metadata?.syncId || undefined,
       tags: Array.isArray(metadata?.tags) ? metadata.tags : [],
+      whiteBackgroundProcessed: true,
     });
     localDriveIds.add(remote.id);
     downloaded++;
