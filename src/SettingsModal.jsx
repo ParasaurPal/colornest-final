@@ -64,7 +64,7 @@ export default function SettingsModal({ onClose }) {
 
   useEffect(() => {
     let active = true;
-    db.pages.filter(page => page.whiteBackgroundProcessed !== true).count()
+    db.pages.count()
       .then(count => { if (active) setUnprocessedImageCount(count); })
       .catch(error => console.warn('Could not count unprocessed pages:', error));
     return () => { active = false; };
@@ -144,15 +144,13 @@ export default function SettingsModal({ onClose }) {
   const handleProcessExistingImages = async () => {
     if (imageProcessing) return;
     try {
-      const pendingPages = await db.pages
-        .filter(page => page.whiteBackgroundProcessed !== true)
-        .toArray();
+      const pendingPages = await db.pages.toArray();
       if (!pendingPages.length) {
         setUnprocessedImageCount(0);
-        setImageProcessStatus('All existing pages have already been processed.');
+        setImageProcessStatus('There are no pages in your library yet.');
         return;
       }
-      if (!window.confirm(`Remove white backgrounds from ${pendingPages.length} existing pages? This updates their stored images but keeps all page details and organization.`)) return;
+      if (!window.confirm(`Convert white and near-white pixels to transparency on all ${pendingPages.length} pages? This reapplies the filter even to pages processed before. Page details and organization are preserved.`)) return;
 
       setImageProcessing(true);
       setImageProgress({ done: 0, total: pendingPages.length });
@@ -177,11 +175,9 @@ export default function SettingsModal({ onClose }) {
         setImageProgress({ done: index + 1, total: pendingPages.length });
       }
 
-      const remaining = await db.pages
-        .filter(page => page.whiteBackgroundProcessed !== true)
-        .count();
-      setUnprocessedImageCount(remaining);
-      setImageProcessStatus(`Finished: ${processed} processed, ${failed} failed.${remaining ? ` ${remaining} pages remain and can be retried.` : ''}`);
+      const remaining = failed;
+      setUnprocessedImageCount(await db.pages.count());
+      setImageProcessStatus(`Finished: ${processed} converted, ${failed} failed. You can run the filter again anytime.`);
     } catch (error) {
       setImageProcessStatus('Could not process library: ' + error.message);
     } finally {
@@ -301,12 +297,12 @@ export default function SettingsModal({ onClose }) {
             </div>
             <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between gap-2 mb-2">
-                <h4 className="text-sm font-bold text-gray-800 dark:text-white">White background removal</h4>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{unprocessedImageCount} remaining</span>
+                <h4 className="text-sm font-bold text-gray-800 dark:text-white">Convert white to transparency</h4>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{unprocessedImageCount} pages in library</span>
               </div>
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Process pages already in your library. Titles, categories, tags, favorites, and other details are preserved. Pages already processed by ColorNest are skipped.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Removes pure white and near-white pixels, including pale grey edges, while keeping darker line art and most colored details. Reapplies to every page, including previously processed pages.</p>
               <button onClick={handleProcessExistingImages} disabled={imageProcessing || unprocessedImageCount === 0} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">
-                {imageProcessing ? `Processing ${imageProgress.done} of ${imageProgress.total}…` : unprocessedImageCount ? 'Process existing library' : 'Library already processed'}
+                {imageProcessing ? `Processing ${imageProgress.done} of ${imageProgress.total}…` : unprocessedImageCount ? 'Apply filter to entire library' : 'No pages to process'}
               </button>
               {imageProcessing && (
                 <div className="mt-2">
