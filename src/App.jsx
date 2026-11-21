@@ -26,6 +26,7 @@ function App() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement || window.matchMedia('(display-mode: fullscreen)').matches));
   const [scanProgress, setScanProgress] = useState(null);
+  const [viewingPage, setViewingPage] = useState(null);
 
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
@@ -88,15 +89,9 @@ function App() {
     setInstallPrompt(null);
   };
 
-  const openExternal = (imageUrl) => {
-    const opened = window.open(imageUrl, '_blank', 'noopener,noreferrer');
-    if (!opened) {
-      const link = document.createElement('a');
-      link.href = imageUrl;
-      link.download = 'coloring-page';
-      link.click();
-    }
-  };
+  // Open large/data-URL images inside the app. Sending a huge base64 URL
+  // to window.open can crash or force-close mobile browsers.
+  const openExternal = (page) => setViewingPage(page);
 
   const getCategoryAndChildren = (catId, allCats) => {
     let ids = [catId];
@@ -283,7 +278,7 @@ function App() {
                 <button onClick={() => deletePageWithDrive(page)} className="text-gray-300 dark:text-gray-600 hover:text-red-500" aria-label="Delete page"><Trash2 size={14} /></button>
               </div>
               {!!page.tags?.length && <div className="flex flex-wrap gap-1 mb-2">{page.tags.map(tag => <button key={tag} onClick={() => setActiveTags(current => current.includes(tag) ? current.filter(item => item !== tag) : [...current, tag])} className="text-[9px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded">{tag}</button>)}</div>}
-              <button onClick={() => openExternal(page.imageUrl)} className="mt-auto w-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+              <button onClick={() => openExternal(page)} className="mt-auto w-full bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
                 <ExternalLink size={12} /> Open Page
               </button>
             </div>
@@ -291,6 +286,24 @@ function App() {
         ))}
         {filteredPages.length === 0 && <div className="col-span-full text-center py-16 text-gray-500 dark:text-gray-400"><p className="font-semibold">No coloring pages found</p><p className="text-sm mt-1">Try clearing a filter or add a new page.</p></div>}
       </main>
+
+
+      {viewingPage && (
+        <div className="fixed inset-0 z-[250] bg-black/95 flex flex-col" role="dialog" aria-modal="true" aria-label={viewingPage.title}>
+          <div className="flex items-center justify-between gap-3 p-3 text-white">
+            <h2 className="font-semibold text-sm truncate">{viewingPage.title || 'Coloring page'}</h2>
+            <button onClick={() => setViewingPage(null)} className="p-2 rounded-full bg-white/15" aria-label="Close page"><X size={22} /></button>
+          </div>
+          <div className="flex-1 min-h-0 flex items-center justify-center overflow-auto p-2">
+            <img
+              src={viewingPage.imageUrl}
+              alt={viewingPage.title || 'Coloring page'}
+              className="max-w-full max-h-full object-contain"
+              onError={(event) => { event.currentTarget.alt = 'This image could not be loaded.'; event.currentTarget.style.display = 'none'; }}
+            />
+          </div>
+        </div>
+      )}
 
       <button onClick={() => setIsModalOpen(true)} className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 w-14 h-14 bg-purple-600 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-105 transition-transform z-40" aria-label="Add coloring pages">
         <Plus size={28} />
