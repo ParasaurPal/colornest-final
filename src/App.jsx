@@ -7,7 +7,7 @@ import SideMenu from './SideMenu';
 import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding';
-import { triggerBackgroundSync, deletePageWithDrive } from './driveSync';
+import { triggerBackgroundSync, deletePageWithDrive, subscribeScanProgress } from './driveSync';
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -25,6 +25,7 @@ function App() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement || window.matchMedia('(display-mode: fullscreen)').matches));
+  const [scanProgress, setScanProgress] = useState(null);
 
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
@@ -38,6 +39,7 @@ function App() {
     db.settings.get('hasSeenTutorial').then(setting => {
       if (!setting || !setting.value) setShowTutorial(true);
     });
+    const unsubscribeScanProgress = subscribeScanProgress(setScanProgress);
     triggerBackgroundSync();
     const retryDriveSync = () => { if (navigator.onLine) triggerBackgroundSync(true); };
     window.addEventListener('online', retryDriveSync);
@@ -50,6 +52,7 @@ function App() {
     window.addEventListener('beforeinstallprompt', captureInstall);
     document.addEventListener('fullscreenchange', updateFullscreen);
     return () => {
+      unsubscribeScanProgress();
       window.removeEventListener('online', retryDriveSync);
       window.removeEventListener('beforeinstallprompt', captureInstall);
       document.removeEventListener('fullscreenchange', updateFullscreen);
@@ -239,6 +242,17 @@ function App() {
             ) : <p className="text-xs text-gray-500 dark:text-gray-400">Create a tag or add tags while editing a coloring page.</p>}
             <div className="flex items-center gap-2 mt-3 text-xs text-gray-600 dark:text-gray-300"><span>Match:</span><button onClick={() => setTagMatchMode('all')} className={`px-2 py-1 rounded ${tagMatchMode === 'all' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700'}`}>All selected</button><button onClick={() => setTagMatchMode('any')} className={`px-2 py-1 rounded ${tagMatchMode === 'any' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700'}`}>Any selected</button></div>
           </section>
+        )}
+        {scanProgress?.active && (
+          <div className="w-full pt-1" role="status" aria-live="polite">
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 truncate">{scanProgress.message}</span>
+              <span className="text-[11px] tabular-nums text-gray-500 dark:text-gray-400">{scanProgress.percent}%</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-purple-100 dark:bg-gray-700 overflow-hidden">
+              <div className="h-full rounded-full bg-purple-600 transition-all duration-300" style={{ width: `${scanProgress.percent}%` }} />
+            </div>
+          </div>
         )}
       </header>
 
