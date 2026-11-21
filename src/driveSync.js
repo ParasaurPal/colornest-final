@@ -328,45 +328,35 @@ export async function syncDrive() {
     return { notConnected: true, uploaded: 0, downloaded: 0, moved: 0, renamed: 0, removedLocal: 0 };
   }
 
-  let uploaded = 0;
-  let downloaded = 0;
-  let moved = 0;
-  let renamed = 0;
-  let removedLocal = 0;
-  let metadataUploaded = 0;
-  let metadataDownloaded = 0;
-
-  reportScanProgress({ phase: 'connect', percent: 2, message: 'Connecting to Google Drive…' });
+  // Import-only sync: never upload, rename, move, delete, or rewrite existing
+  // library pages. Existing local pages remain untouched.
+  reportScanProgress({ phase: 'connect', percent: 3, message: 'Connecting to Google Drive…' });
   const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
   const metadataFolderId = await getOrCreateFolder(METADATA_FOLDER_NAME, rootId);
-  const untaggedId = await getOrCreateFolder(DRIVE_UNTAGGED_FOLDER_NAME, rootId);
   const pdfInboxId = await getOrCreateFolder(PDF_INBOX_FOLDER_NAME, rootId);
   const processedPdfsId = await getOrCreateFolder(PROCESSED_PDFS_FOLDER_NAME, rootId);
+
   let pdfsConverted = 0;
   let pdfPagesCreated = 0;
   let pdfsArchived = 0;
-
-  // Convert PDFs placed in ColorNest/PDF Inbox. Record each completed
-  // conversion before moving the source so a failed move never duplicates pages.
   const processedPdfIds = new Set((await getSetting(KEY_PROCESSED_PDF_IDS) || '').split(',').filter(Boolean));
+
   reportScanProgress({ phase: 'pdfs', percent: 8, message: 'Checking PDF Inbox…' });
   const inboxFiles = await listChildren(pdfInboxId);
   const pdfFiles = inboxFiles.filter(file => file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
-  let pdfIndex = 0;
-  for (const file of inboxFiles) {
-    if (file.mimeType !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) continue;
-    pdfIndex++;
-    reportScanProgress({ phase: 'pdfs', percent: 10 + Math.round((pdfIndex / Math.max(pdfFiles.length, 1)) * 20), message: `Processing PDF ${pdfIndex} of ${pdfFiles.length}: ${file.name}`, current: pdfIndex, total: pdfFiles.length });
+  for (let index = 0; index < pdfFiles.length; index++) {
+    const file = pdfFiles[index];
+    reportScanProgress({ phase: 'pdfs', percent: 10 + Math.round(((index + 1) / Math.max(pdfFiles.length, 1)) * 25), message: `Checking PDF ${index + 1} of ${pdfFiles.length}: ${file.name}` });
     try {
       if (!processedPdfIds.has(file.id)) {
         const pdfBlob = await downloadFile(file.id);
         const pageImages = await convertPdfToImages(await pdfBlob.arrayBuffer());
         if (!pageImages.length) throw new Error('The PDF did not contain any pages.');
-        const baseTitle = file.name.replace(/\.pdf$/i, '') || 'Imported PDF';
+        const baseTitle = file.name.replace(/\\.pdf$/i, '') || 'Imported PDF';
         const now = Date.now();
-        const newPages = pageImages.map((imageUrl, index) => ({
+        const newPages = pageImages.map((imageUrl, pageIndex) => ({
           updatedAt: now,
-          title: `${baseTitle} - Page ${index + 1}`,
+          title: `${baseTitle} - Page ${pageIndex + 1}`,
           categoryId: null,
           complexity: 'Beginner',
           time: 'TBD',
@@ -379,8 +369,6 @@ export async function syncDrive() {
           driveFileId: null,
           tags: [],
         }));
-        // Save all pages and the processed marker atomically to prevent
-        // duplicate imports if the browser closes during conversion.
         await db.transaction('rw', db.pages, db.settings, async () => {
           await db.pages.bulkAdd(newPages);
           await setSetting(KEY_PROCESSED_PDF_IDS, [...processedPdfIds, file.id].join(','));
@@ -389,138 +377,77 @@ export async function syncDrive() {
         pdfsConverted++;
         pdfPagesCreated += pageImages.length;
       }
-      await moveFile(file.id, file.parentIds, processedPdfsId);
+      await moveFile(file.id, file.parentIds || [], processedPdfsId);
       pdfsArchived++;
     } catch (error) {
       console.warn(`Could not process PDF ${file.name}:`, error);
     }
   }
 
-  reportScanProgress({ phase: 'categories', percent: 32, message: 'Checking collection folders…' });
-  // Ensure every category has a folder, mirroring the nested tree.
-  const categories = await db.categories.toArray();
-  const folderIdByCategory = {};
-  for (let index = 0; index < categories.length; index++) {
-    const category = categories[index];
-    folderIdByCategory[category.id] = await ensureCategoryFolder(rootId, categories, category);
-    reportScanProgress({ phase: 'categories', percent: 32 + Math.round(((index + 1) / Math.max(categories.length, 1)) * 13), message: `Checking folders ${index + 1} of ${categories.length}` });
-  }
-
-  reportScanProgress({ phase: 'drive', percent: 47, message: 'Reading files in Google Drive…' });
-  // One recursive listing of the whole ColorNest tree.
+  reportScanProgress({ phase: 'drive', percent: 40, message: 'Looking for new Drive images…' });
   const remoteFiles = await listTree(rootId);
-  const remoteById = new Map(remoteFiles.map((f) => [f.id, f]));
-  const categoryIdByFolder = new Map(
-    categories.filter((c) => c.driveFolderId).map((c) => [c.driveFolderId, c.id])
-  );
-  const tombstones = await readTombstones();
   const pages = await db.pages.toArray();
-  const localDriveIds = new Set(pages.map((p) => p.driveFileId).filter(Boolean));
+  const localDriveIds = new Set(pages.map(page => page.driveFileId).filter(Boolean));
+  const tombstones = await readTombstones();
 
-  // Upload new pages; move/rename changed ones; drop pages whose Drive file
-  // was trashed or deleted.
-  for (let index = 0; index < pages.length; index++) {
-    const page = pages[index];
-    reportScanProgress({ phase: 'pages', percent: 50 + Math.round(((index + 1) / Math.max(pages.length, 1)) * 25), message: `Syncing library pages ${index + 1} of ${pages.length}` });
-    const driveId = page.driveFileId;
-    if (!driveId) {
-      try {
-        const blob = await imageUrlToBlob(page.imageUrl);
-        const folderId = folderIdByCategory[page.categoryId] || untaggedId;
-        const newId = await uploadFile(
-          blob,
-          driveFileName(page),
-          folderId,
-          mimeTypeForExtension(extensionForImageUrl(page.imageUrl))
-        );
-        await db.pages.update(page.id, { driveFileId: newId });
-        uploaded++;
-      } catch (e) {
-        // Skip pages whose local image is unreadable; the next sync retries.
-        console.log(`Skipping upload for page ${page.id}:`, e.message);
-      }
-      continue;
-    }
-
-    const remote = remoteById.get(driveId);
-    if (!remote) {
-      // Not in the tree: trashed, deleted, or moved out by the user.
-      const state = await checkRemoteState(driveId);
-      if (state === 'trashed') {
-        await db.pages.delete(page.id);
-        if (page.syncId) {
-          const metadataFile = await findFileByName(pageMetadataName(page.syncId), metadataFolderId) || await findFileByName(pageMetadataName(page.syncId), rootId);
-          if (metadataFile) await trashFile(metadataFile.id).catch(() => {});
-        }
-        removedLocal++;
-      } else if (state === 'gone') {
-        // A 404 can also mean this Drive account cannot access a file ID
-        // from an imported backup. Keep the local page and upload it again.
-        await db.pages.update(page.id, { driveFileId: null, updatedAt: Date.now() });
-      }
-      // 'exists-elsewhere': the user moved it out of the ColorNest tree;
-      // leave the local page alone.
-      continue;
-    }
-
-    const expectedFolder = folderIdByCategory[page.categoryId] || untaggedId;
-    if (!remote.parentIds.includes(expectedFolder)) {
-      await moveFile(driveId, remote.parentIds, expectedFolder);
-      moved++;
-    }
-    const expectedName = driveFileName(page);
-    if (remote.name !== expectedName) {
-      await renameFile(driveId, expectedName);
-      renamed++;
+  // Read metadata sidecars only to enrich newly imported images.
+  const metadataFiles = [
+    ...(await listChildren(metadataFolderId)),
+    ...(await listChildren(rootId)).filter(file => file.name?.startsWith(PAGE_META_PREFIX)),
+  ];
+  const metadataByDriveId = new Map();
+  for (const file of metadataFiles) {
+    if (!file.name?.startsWith(PAGE_META_PREFIX) || !file.name.endsWith('.json')) continue;
+    try {
+      const blob = await downloadFile(file.id);
+      const metadata = JSON.parse(await blob.text());
+      if (metadata.driveFileId) metadataByDriveId.set(metadata.driveFileId, metadata);
+    } catch (error) {
+      console.warn('Skipping unreadable page metadata:', error.message);
     }
   }
 
-  // Download images the user added to Drive directly.
-  let remoteIndex = 0;
-  const remoteImages = remoteFiles.filter(remote => remote.mimeType?.startsWith('image/'));
-  for (const remote of remoteFiles) {
-    if (!remote.mimeType.startsWith('image/')) continue;
-    remoteIndex++;
-    reportScanProgress({ phase: 'downloads', percent: 76 + Math.round((remoteIndex / Math.max(remoteImages.length, 1)) * 17), message: `Checking Drive images ${remoteIndex} of ${remoteImages.length}` });
+  const categories = await db.categories.toArray();
+  const categoryIdByFolder = new Map(categories.filter(category => category.driveFolderId).map(category => [category.driveFolderId, category.id]));
+  const remoteImages = remoteFiles.filter(file => file.mimeType?.startsWith('image/'));
+  let downloaded = 0;
+
+  for (let index = 0; index < remoteImages.length; index++) {
+    const remote = remoteImages[index];
+    reportScanProgress({ phase: 'downloads', percent: 45 + Math.round(((index + 1) / Math.max(remoteImages.length, 1)) * 50), message: `Checking new images ${index + 1} of ${remoteImages.length}` });
     if (localDriveIds.has(remote.id) || tombstones.has(remote.id)) continue;
-    const folderId = remote.parentIds[0];
-    if (!folderId) continue;
-    const categoryId = categoryIdByFolder.get(folderId);
-    const isUntagged = folderId === untaggedId || categoryId === undefined;
-    const extension = remote.name.includes('.')
-      ? remote.name.substring(remote.name.lastIndexOf('.') + 1)
-      : 'jpg';
+
+    const metadata = metadataByDriveId.get(remote.id);
+    let categoryId = categoryIdByFolder.get(remote.parentIds?.[0]) ?? null;
+    if (metadata?.categoryPath?.length) {
+      categoryId = await ensureLocalCategoryPath(metadata.categoryPath);
+    }
+    const extension = remote.name.includes('.') ? remote.name.substring(remote.name.lastIndexOf('.') + 1) : 'jpg';
     const blob = await downloadFile(remote.id);
-    const fileName = `drive_${remote.id}_${Date.now()}.${extension}`;
-    const localImageUrl = await saveDownloadedImage(blob, fileName);
+    const localImageUrl = await saveDownloadedImage(blob);
     await db.pages.add({
-      updatedAt: Date.now(),
-      title: remote.name.includes('.')
-        ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page'
-        : remote.name,
-      categoryId: isUntagged ? null : categoryId,
-      complexity: 'Beginner',
-      time: 'TBD',
-      tool: 'TBD',
+      updatedAt: Number(metadata?.updatedAt || Date.now()),
+      title: metadata?.title || (remote.name.includes('.') ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page' : remote.name),
+      categoryId,
+      complexity: metadata?.complexity || 'Beginner',
+      time: metadata?.time || 'TBD',
+      tool: metadata?.tool || 'TBD',
       imageUrl: localImageUrl,
-      isFavorite: 0,
-      isCompleted: 0,
-      progress: 0,
-      isUncategorized: isUntagged ? 1 : 0,
+      isFavorite: metadata?.isFavorite ? 1 : 0,
+      isCompleted: metadata?.isCompleted ? 1 : 0,
+      progress: Number(metadata?.progress || 0),
+      isUncategorized: metadata ? (metadata.isUncategorized ? 1 : 0) : (categoryId === null ? 1 : 0),
       driveFileId: remote.id,
-      tags: [],
+      syncId: metadata?.syncId || undefined,
+      tags: Array.isArray(metadata?.tags) ? metadata.tags : [],
     });
+    localDriveIds.add(remote.id);
     downloaded++;
   }
 
-  reportScanProgress({ phase: 'metadata', percent: 95, message: 'Updating page details…' });
-  const metadataResult = await syncPageMetadata(rootId, metadataFolderId, remoteFiles);
-  metadataUploaded = metadataResult.metadataUploaded;
-  metadataDownloaded = metadataResult.metadataDownloaded;
-
   await setSetting(KEY_LAST_SYNC, Date.now());
-  const result = { notConnected: false, uploaded, downloaded, moved, renamed, removedLocal, metadataUploaded, metadataDownloaded, pdfsConverted, pdfPagesCreated, pdfsArchived };
-  finishScanProgress({ message: 'Google Drive scan complete', result });
+  const result = { notConnected: false, uploaded: 0, downloaded, moved: 0, renamed: 0, removedLocal: 0, metadataUploaded: 0, metadataDownloaded: 0, pdfsConverted, pdfPagesCreated, pdfsArchived };
+  finishScanProgress({ message: 'New Drive files imported', result });
   return result;
 }
 
