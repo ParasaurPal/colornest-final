@@ -54,6 +54,19 @@ The repository builds a production PWA artifact on every push and pull request. 
 
 See [DRIVE_SETUP.md](DRIVE_SETUP.md). Set `VITE_GOOGLE_CLIENT_ID` to a Google OAuth **Web application** client ID before building. It is a public client identifier, not a secret. Never put a client secret in the browser app.
 
-## Project direction
+## Android app
 
-The React/Vite PWA is the product. The old Android/Kotlin source is retained in the repository as historical material while the PWA replaces the previous APK workflow; it is not part of the PWA build.
+The repository also contains the native Kotlin/Jetpack Compose Android app in `app/`. It uses a local Room database and app-private image storage. The Android and PWA clients are built separately and have separate local libraries; connecting both to the same Google account does not currently synchronize every metadata field between clients.
+
+- Android builds use Java 21, Android SDK 36, and the Gradle wrapper.
+- GitHub Actions runs `:app:assembleDebug` on relevant pushes and pull requests.
+- The debug APK is published as the `ColorNest-Android-debug` workflow artifact.
+- The Android client has its own Google Drive setup described in [DRIVE_SETUP.md](DRIVE_SETUP.md).
+
+To build locally:
+
+```sh
+./gradlew :app:assembleDebug
+```
+
+The PWA build does not compile or package the Android app.
