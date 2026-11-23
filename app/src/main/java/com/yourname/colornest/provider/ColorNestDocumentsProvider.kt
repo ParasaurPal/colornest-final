@@ -481,11 +481,12 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
      * columns that the caller actually requested.
      */
     private fun addProjectedRow(cursor: MatrixCursor, values: List<Pair<String, Any?>>) {
-        val row = cursor.newRow()
+        val row = arrayOfNulls<Any?>(cursor.columnCount)
         values.forEach { (column, value) ->
             val index = cursor.getColumnIndex(column)
-            if (index >= 0) row.add(index, value)
+            if (index >= 0) row[index] = value
         }
+        cursor.addRow(row)
     }
 
     private fun resolveMimeType(path: String): String {
