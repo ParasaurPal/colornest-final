@@ -10,10 +10,7 @@ import {
   syncDrive,
   formatSyncSummary,
   trashRootFolder,
-  isScanOnOpenEnabled,
-  setScanOnOpenEnabled,
   getLastSyncMillis,
-  triggerBackgroundSync,
 } from './driveSync';
 
 // A page needs (re)processing when it was never processed, or when it was
@@ -35,7 +32,6 @@ export default function SettingsModal({ onClose }) {
   const [driveStatus, setDriveStatus] = useState(null);
   const [driveLastSync, setDriveLastSync] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [driveScanOnOpen, setDriveScanOnOpen] = useState(true);
   const [storageUsage, setStorageUsage] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
@@ -47,7 +43,6 @@ export default function SettingsModal({ onClose }) {
     setDriveConnected(isDriveConnected());
     setDriveAccount(getDriveAccountEmail());
     setDriveLastSync(await getLastSyncMillis());
-    setDriveScanOnOpen(await isScanOnOpenEnabled());
   };
 
   // Load the Drive state when the modal opens. The reads are async (Dexie),
@@ -58,12 +53,10 @@ export default function SettingsModal({ onClose }) {
       const connected = isDriveConnected();
       const account = getDriveAccountEmail();
       const lastSync = await getLastSyncMillis();
-      const scanOnOpen = await isScanOnOpenEnabled();
       if (!active) return;
       setDriveConnected(connected);
       setDriveAccount(account);
       setDriveLastSync(lastSync);
-      setDriveScanOnOpen(scanOnOpen);
     })();
     return () => { active = false; };
   }, []);
@@ -138,7 +131,6 @@ export default function SettingsModal({ onClose }) {
         if (backup.pages.length) await db.pages.bulkAdd(backup.pages);
         if (Array.isArray(backup.tags) && backup.tags.length) await db.tags.bulkAdd(backup.tags);
       });
-      triggerBackgroundSync(true);
       alert('Backup restored. Your library is ready on this device.');
     } catch (error) {
       alert('Backup restore failed: ' + error.message);
@@ -206,8 +198,7 @@ export default function SettingsModal({ onClose }) {
       setDriveStatus("Connecting…");
       await connectDrive();
       await refreshDriveState();
-      setDriveStatus("Connected — importing new Drive files…");
-      handleDriveSyncNow();
+      setDriveStatus("Connected — tap Import new files when you want to download new Drive files.");
     } catch (e) {
       setDriveStatus("Could not connect: " + e.message);
     }
@@ -234,17 +225,11 @@ export default function SettingsModal({ onClose }) {
     }
   };
 
-  const handleDriveScanToggle = async (enabled) => {
-    setDriveScanOnOpen(enabled);
-    await setScanOnOpenEnabled(enabled);
-  };
-
   const handleClearAllTags = async () => {
     if (window.confirm("Remove all tags from every page? Titles, categories, favorites, and completion status will not change.")) {
       const allPages = await db.pages.toArray();
       await Promise.all(allPages.map(p => db.pages.update(p.id, { tags: [], updatedAt: Date.now() })));
       await db.tags.clear();
-      triggerBackgroundSync(true);
       alert("All tags have been cleared.");
     }
   };
@@ -364,11 +349,7 @@ export default function SettingsModal({ onClose }) {
                     Disconnect
                   </button>
                 </div>
-                <label className="flex items-center gap-3 mt-3 cursor-pointer">
-                  <input type="checkbox" checked={driveScanOnOpen} onChange={(e) => handleDriveScanToggle(e.target.checked)} className="w-5 h-5 accent-purple-600" />
-                  <span className="text-sm font-bold text-gray-800 dark:text-white">Import from Drive on first open</span>
-                </label>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Runs one initial import when ColorNest is first opened on this device. It adds new Drive images and converts PDFs from ColorNest/PDF Inbox, moving originals to Processed PDFs. Later opens do not scan again. Sync now checks for newly added files only; existing pages are never re-uploaded, renamed, moved, or deleted.</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Nothing is downloaded automatically. Import new files downloads new Drive images and converts PDFs from ColorNest/PDF Inbox, moving originals to Processed PDFs. Existing pages are never re-uploaded, renamed, moved, or deleted.</p>
               </>
             ) : (
               <button onClick={handleDriveConnect} disabled={!isDriveConfigured()} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">

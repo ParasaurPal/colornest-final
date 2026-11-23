@@ -7,7 +7,7 @@ import SideMenu from './SideMenu';
 import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding';
-import { triggerBackgroundSync, deletePageWithDrive, subscribeScanProgress } from './driveSync';
+import { deletePageWithDrive, subscribeScanProgress } from './driveSync';
 import { tryCreateThumbnail } from './thumbnails';
 
 function App() {
@@ -42,9 +42,6 @@ function App() {
       if (!setting || !setting.value) setShowTutorial(true);
     });
     const unsubscribeScanProgress = subscribeScanProgress(setScanProgress);
-    triggerBackgroundSync();
-    const retryDriveSync = () => { if (navigator.onLine) triggerBackgroundSync(true); };
-    window.addEventListener('online', retryDriveSync);
 
     const captureInstall = (event) => {
       event.preventDefault();
@@ -55,7 +52,6 @@ function App() {
     document.addEventListener('fullscreenchange', updateFullscreen);
     return () => {
       unsubscribeScanProgress();
-      window.removeEventListener('online', retryDriveSync);
       window.removeEventListener('beforeinstallprompt', captureInstall);
       document.removeEventListener('fullscreenchange', updateFullscreen);
     };
@@ -165,7 +161,6 @@ function App() {
       if (!existing) await db.tags.add({ name: newName, createdAt: Date.now() });
     });
     setActiveTags(tags => tags.map(tag => tag === oldName ? newName : tag));
-    triggerBackgroundSync(true);
   };
 
   const deleteTag = async (name) => {
@@ -181,7 +176,6 @@ function App() {
       if (row) await db.tags.delete(row.id);
     });
     setActiveTags(tags => tags.filter(tag => tag !== name));
-    triggerBackgroundSync(true);
   };
 
   const filteredPages = (pages || []).filter(page => {
@@ -298,7 +292,7 @@ function App() {
           <article key={page.id} className="bg-white dark:bg-gray-800 rounded-[24px] p-2 pb-3 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col relative">
             <div className="relative h-40 bg-gray-50 dark:bg-gray-900 rounded-[18px] overflow-hidden">
               <img src={page.thumbnailUrl || page.imageUrl} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
-              <button onClick={async () => { await db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); triggerBackgroundSync(true); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
+              <button onClick={async () => { await db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
                 <Heart size={13} fill={page.isFavorite === 1 ? '#ec4899' : 'none'} color={page.isFavorite === 1 ? '#ec4899' : '#9ca3af'} />
               </button>
               <button onClick={() => setCategorizingPage(page)} className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white font-bold opacity-0 hover:opacity-100 focus:opacity-100 transition-opacity">Edit Details</button>
@@ -317,7 +311,6 @@ function App() {
         ))}
         {filteredPages.length === 0 && <div className="col-span-full text-center py-16 text-gray-500 dark:text-gray-400"><p className="font-semibold">No coloring pages found</p><p className="text-sm mt-1">Try clearing a filter or add a new page.</p></div>}
       </main>
-
 
       {viewingPage && (
         <div className="fixed inset-0 z-[250] bg-black/95 flex flex-col" role="dialog" aria-modal="true" aria-label={viewingPage.title}>

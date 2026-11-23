@@ -31,9 +31,7 @@ import { convertPdfToImages } from './pdfConverter';
 import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
 
-const KEY_SCAN_ON_OPEN = 'driveScanOnOpen';
 const KEY_LAST_SYNC = 'driveLastSync';
-const KEY_INITIAL_IMPORT_DONE = 'driveInitialImportDone';
 const KEY_TOMBSTONES = 'driveTombstones';
 const KEY_PROCESSED_PDF_IDS = 'driveProcessedPdfIds';
 const PDF_INBOX_FOLDER_NAME = 'PDF Inbox';
@@ -41,7 +39,6 @@ const PROCESSED_PDFS_FOLDER_NAME = 'Processed PDFs';
 const METADATA_FOLDER_NAME = 'Metadata';
 const MAX_TOMBSTONES = 500;
 
-let syncInFlight = null;
 const scanProgressListeners = new Set();
 export function subscribeScanProgress(listener) { scanProgressListeners.add(listener); return () => scanProgressListeners.delete(listener); }
 function reportScanProgress(progress) { const snapshot = { active: true, percent: 0, message: 'Scanning Google Drive…', ...progress }; for (const listener of scanProgressListeners) { try { listener(snapshot); } catch (error) { console.warn('Scan progress listener failed:', error); } } }
@@ -56,15 +53,6 @@ async function getSetting(key) {
 
 async function setSetting(key, value) {
   await db.settings.put({ key, value });
-}
-
-export async function isScanOnOpenEnabled() {
-  const value = await getSetting(KEY_SCAN_ON_OPEN);
-  return value === undefined ? true : value === true;
-}
-
-export async function setScanOnOpenEnabled(enabled) {
-  await setSetting(KEY_SCAN_ON_OPEN, enabled);
 }
 
 export async function getLastSyncMillis() {
@@ -159,7 +147,6 @@ async function ensureCategoryFolder(rootId, allCategories, category) {
   }
   return parentId;
 }
-
 
 // ---------- Cross-device page metadata ----------
 
@@ -461,35 +448,9 @@ export async function syncDrive() {
   }
 
   await setSetting(KEY_LAST_SYNC, Date.now());
-  await setSetting(KEY_INITIAL_IMPORT_DONE, true);
   const result = { notConnected: false, uploaded: 0, downloaded, moved: 0, renamed: 0, removedLocal: 0, metadataUploaded: 0, metadataDownloaded: 0, pdfsConverted, pdfPagesCreated, pdfsArchived };
   finishScanProgress({ message: 'New Drive files imported', result });
   return result;
-}
-
-/**
- * Fire-and-forget background sync (used on app open and after imports).
- * Never throws; concurrent calls share one in-flight sync.
- */
-export function triggerBackgroundSync(_force = false) {
-  if (syncInFlight) return syncInFlight;
-  syncInFlight = (async () => {
-    try {
-      if (!isDriveConnected()) return null;
-      if (!(await isScanOnOpenEnabled())) return null;
-      // Startup import is deliberately one-time. Reopening the app or editing
-      // a local page must never trigger another full-library scan.
-      if (await getSetting(KEY_INITIAL_IMPORT_DONE)) return null;
-      return await syncDrive();
-    } catch (e) {
-      console.log('Initial Drive import failed:', e.message);
-      finishScanProgress({ active: false, error: true, message: `Import failed: ${e.message}` });
-      return null;
-    } finally {
-      syncInFlight = null;
-    }
-  })();
-  return syncInFlight;
 }
 
 // ---------- Single-page propagation ----------
