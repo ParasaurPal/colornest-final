@@ -35,3 +35,27 @@ db.on('populate', () => {
     { name: 'Architecture', parentId: null }
   ]);
 });
+
+ 
+// Add the category name as a shared tag for every page already filed in a category.
+db.version(12).stores({
+  pages: '++id, title, categoryId, complexity, isFavorite, isCompleted, isUncategorized, driveFileId, syncId, updatedAt, *tags',
+  categories: '++id, name, parentId, driveFolderId',
+  settings: 'key',
+  tags: '++id, &name, createdAt'
+}).upgrade(async (tx) => {
+  const categories = await tx.table('categories').toArray();
+  const categoryNames = new Map(categories.map(category => [category.id, String(category.name || '').trim()]));
+  const tagNames = new Set();
+  await tx.table('pages').toCollection().modify(page => {
+    const categoryName = categoryNames.get(page.categoryId);
+    if (!categoryName) return;
+    page.tags = [...new Set([...(page.tags || []), categoryName])];
+    tagNames.add(categoryName);
+    page.updatedAt = page.updatedAt || Date.now();
+  });
+  for (const name of tagNames) {
+    const exists = await tx.table('tags').where('name').equals(name).first();
+    if (!exists) await tx.table('tags').add({ name, createdAt: Date.now() });
+  }
+});
