@@ -45,6 +45,15 @@ function App() {
   const galleryFullImages = galleryFullImagesSetting?.value === true;
 
   useEffect(() => {
+    // Request persistent browser storage so IndexedDB page images and
+    // their gallery thumbnails are less likely to be evicted automatically.
+    // The browser may decline; the library remains stored in IndexedDB either way.
+    if (navigator.storage?.persist) {
+      navigator.storage.persist().then(granted => {
+        if (!granted) console.info('Persistent storage was not granted by this browser.');
+      }).catch(error => console.warn('Could not request persistent storage:', error));
+    }
+
     if (localStorage.getItem('theme') === 'dark') {
       setIsDarkMode(true);
       document.documentElement.classList.add('dark');
