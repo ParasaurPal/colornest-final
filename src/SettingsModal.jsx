@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
-import { seedMassiveCategories } from './prepopulate';
+import { seedDefaultCategories } from './prepopulate';
 import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
 import { isDriveConfigured } from './driveConfig';
@@ -212,11 +212,11 @@ export default function SettingsModal({ onClose }) {
   };
 
   const handleSeedCategories = async () => {
-    if (window.confirm("This will replace all current categories with the massive default list. Continue?")) {
+    if (window.confirm("This adds the default categories — any you already have are kept, only the missing ones are created. Continue?")) {
       setIsSeeding(true);
-      await seedMassiveCategories();
+      const { created } = await seedDefaultCategories();
       setIsSeeding(false);
-      alert("Categories successfully populated!");
+      alert(created > 0 ? `${created} new categories added.` : "All default categories already exist.");
       onClose();
     }
   };
