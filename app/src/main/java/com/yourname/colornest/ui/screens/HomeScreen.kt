@@ -407,6 +407,7 @@ fun HomeScreen(
         wipeStep = uiState.wipeStep,
         deleteCloud = uiState.deleteCloud,
         confirmDeleteText = uiState.confirmDeleteText,
+        wipeError = uiState.wipeError,
         onSeedCategories = { viewModel.seedMassiveCategories() },
         onSetWipeStep = { viewModel.setWipeStep(it) },
         onSetDeleteCloud = { viewModel.setDeleteCloud(it) },
