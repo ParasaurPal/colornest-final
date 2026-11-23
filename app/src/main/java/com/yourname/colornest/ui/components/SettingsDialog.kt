@@ -1,5 +1,7 @@
 package com.yourname.colornest.ui.components
 
+import android.content.Intent
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -43,11 +45,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.yourname.colornest.DriveConnectActivity
 import com.yourname.colornest.ui.theme.AccentGreen
 import com.yourname.colornest.ui.theme.AccentRed
 import com.yourname.colornest.ui.theme.PurpleContainerLight
@@ -60,6 +64,7 @@ fun SettingsDialog(
     wipeStep: Int,
     deleteCloud: Boolean,
     confirmDeleteText: String,
+    wipeError: String? = null,
     onSeedCategories: () -> Unit,
     onSetWipeStep: (Int) -> Unit,
     onSetDeleteCloud: (Boolean) -> Unit,
@@ -68,6 +73,7 @@ fun SettingsDialog(
     onClose: () -> Unit
 ) {
     if (!isOpen) return
+    val context = LocalContext.current
     var showFullAppGuide by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onClose) {
@@ -180,6 +186,42 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Google Drive sync
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(PurpleContainerLight.copy(alpha = 0.35f))
+                        .padding(16.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Cloud, contentDescription = null, tint = PurplePrimary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Google Drive", fontWeight = FontWeight.Bold, color = PurplePrimary, fontSize = 15.sp)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Keep a copy of your ColorNest pages in your Google Drive account. Sync uploads local pages and imports images added to the ColorNest Drive folder.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            context.startActivity(Intent(context, DriveConnectActivity::class.java))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Connect / Sync Google Drive") }
+                    OutlinedButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(context, DriveConnectActivity::class.java)
+                                    .putExtra(DriveConnectActivity.EXTRA_PICK_ACCOUNT, true)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Choose a different Google account") }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // Danger Zone
                 Column(
                     modifier = Modifier
@@ -250,8 +292,8 @@ fun SettingsDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
-                                    Text("Also wipe Cloud Folder", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text("Syncs deletion to Google Drive / iCloud", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Also clear Google Drive folder", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Moves the ColorNest backup folder to Google Drive Trash.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
 
@@ -281,7 +323,7 @@ fun SettingsDialog(
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text("Cloud Data Loss!", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = AccentRed)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("You chose to wipe the cloud folder. This permanently deletes your cloud backups.", textAlign = TextAlign.Center, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("The ColorNest backup folder will be moved to Google Drive Trash. You can recover it from Drive Trash while it remains there.", textAlign = TextAlign.Center, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else {
                                 Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(48.dp))
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -298,6 +340,10 @@ fun SettingsDialog(
 
                         4 -> {
                             Text("Type \"DELETE\" to confirm", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                            if (wipeError != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(wipeError, color = AccentRed, fontSize = 12.sp, textAlign = TextAlign.Center)
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = confirmDeleteText,
