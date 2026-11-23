@@ -3,7 +3,6 @@ import imageCompression from 'browser-image-compression';
 import { db } from './db';
 import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { convertPdfToImages } from './pdfConverter';
-import { triggerBackgroundSync } from './driveSync';
 import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
 
@@ -91,7 +90,6 @@ export default function AddPageModal({ isOpen, onClose }) {
 
       setProgressText('Upload complete');
       setProgressPercent(100);
-      triggerBackgroundSync(true);
       setTimeout(() => {
         setIsProcessing(false);
         onClose();

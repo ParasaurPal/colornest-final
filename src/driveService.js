@@ -196,7 +196,7 @@ export async function listChildren(folderId) {
   let pageToken = null;
   do {
     const q = `'${folderId}' in parents and trashed = false`;
-    let url = `/files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name,mimeType,parents)&pageSize=1000`;
+    let url = `/files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name,mimeType,parents,thumbnailLink)&pageSize=1000`;
     if (pageToken) url += `&pageToken=${pageToken}`;
     const res = await driveFetch(url);
     const data = await res.json();
@@ -206,6 +206,7 @@ export async function listChildren(folderId) {
         name: file.name,
         mimeType: file.mimeType,
         parentIds: file.parents || [],
+        thumbnailLink: file.thumbnailLink || null,
       });
     }
     pageToken = data.nextPageToken;
