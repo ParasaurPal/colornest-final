@@ -4,7 +4,7 @@ import { db } from './db';
 import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { convertPdfToImages } from './pdfConverter';
 import { triggerBackgroundSync } from './driveSync';
-import { removeWhiteBackground } from './whiteBackground';
+import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
 
 export default function AddPageModal({ isOpen, onClose }) {
@@ -32,6 +32,7 @@ export default function AddPageModal({ isOpen, onClose }) {
       isUncategorized: 1,
       tags: [],
       whiteBackgroundProcessed: true,
+      whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
       syncId: globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       updatedAt: Date.now(),
     });
