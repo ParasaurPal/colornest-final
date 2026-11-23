@@ -431,10 +431,10 @@ export default function SettingsModal({ onClose }) {
             </div>
             <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between gap-2 mb-2">
-                <h4 className="text-sm font-bold text-gray-800 dark:text-white">White background removal</h4>
+                <h4 className="text-sm font-bold text-gray-800 dark:text-white">Black line art conversion</h4>
                 <span className="text-xs text-gray-500 dark:text-gray-400">{unprocessedImageCount} remaining</span>
               </div>
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Process pages already in your library. Titles, categories, tags, favorites, and other details are preserved. Pages already processed with the current filter are skipped; pages done with an older filter are refreshed.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Keep black and near-black linework, convert it to black ink with smooth transparency, and remove colored pixels and the paper/background. Existing pages can be converted here; titles, categories, tags, favorites, and other details are preserved. Stored images are replaced.</p>
               <button onClick={handleProcessExistingImages} disabled={imageProcessing || unprocessedImageCount === 0} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">
                 {imageProcessing ? `Processing ${imageProgress.done} of ${imageProgress.total}…` : unprocessedImageCount ? 'Process existing library' : 'Library already processed'}
               </button>
