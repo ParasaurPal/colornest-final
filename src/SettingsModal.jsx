@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './db';
-import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
+import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2, Copy } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
 import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
@@ -16,6 +16,7 @@ import {
   triggerBackgroundSync,
 } from './driveSync';
 import DriveBrowserModal from './DriveBrowserModal';
+import DuplicatesModal from './DuplicatesModal';
 
 // A page needs (re)processing when it was never processed, or when it was
 // processed with an older version of the white-background filter.
@@ -40,6 +41,7 @@ export default function SettingsModal({ onClose }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [driveScanOnOpen, setDriveScanOnOpen] = useState(true);
   const [isDriveBrowserOpen, setIsDriveBrowserOpen] = useState(false);
+  const [isDuplicatesOpen, setIsDuplicatesOpen] = useState(false);
   const [storageUsage, setStorageUsage] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
@@ -353,6 +355,13 @@ export default function SettingsModal({ onClose }) {
               )}
               {imageProcessStatus && <p className="text-xs text-gray-600 dark:text-gray-300 mt-2" role="status" aria-live="polite">{imageProcessStatus}</p>}
             </div>
+            <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <h4 className="text-sm font-bold text-gray-800 dark:text-white mb-2">Duplicate pages</h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Find pages with the exact same image and delete the extra copies. The copy in a category is kept by default — you can pick a different one to keep.</p>
+              <button onClick={() => setIsDuplicatesOpen(true)} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold flex items-center justify-center gap-2">
+                <Copy size={16} /> Find duplicates
+              </button>
+            </div>
           </div>
 
           <div className="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
@@ -514,6 +523,8 @@ export default function SettingsModal({ onClose }) {
         </div>
       )}
       {isDriveBrowserOpen && <DriveBrowserModal onClose={() => setIsDriveBrowserOpen(false)} />}
+      {isDuplicatesOpen && <DuplicatesModal onClose={() => setIsDuplicatesOpen(false)} />}
     </div>
   );
 }
+
