@@ -9,6 +9,8 @@ import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding';
 import { deletePageWithDrive } from './driveSync';
 import { tryCreateThumbnail } from './thumbnails';
+import { convertPdfToImages } from './pdfConverter';
+import { savePageToDb } from './pageImport';
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -118,6 +120,48 @@ function App() {
   // Open large/data-URL images inside the app. Sending a huge base64 URL
   // to window.open can crash or force-close mobile browsers.
   const openExternal = (page) => setViewingPage(page);
+
+  // Files shared to ColorNest from another Android app (via the share
+  // target) wait in a cache the service worker fills. Import them on open:
+  // PDFs are converted to pages exactly like an upload, then the cache
+  // entry is removed so a file is never imported twice.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!('caches' in window)) return;
+        const cache = await caches.open('share-target-pending');
+        const keys = await cache.keys();
+        const pending = keys.filter((request) => request.url.includes('/share-target/'));
+        for (const request of pending) {
+          if (cancelled) return;
+          const response = await cache.match(request);
+          if (!response) {
+            await cache.delete(request);
+            continue;
+          }
+          const blob = await response.blob();
+          const encodedName = request.url.split('/').pop() || 'shared.pdf';
+          const fileName = decodeURIComponent(encodedName.replace(/^\d+-\d+-/, ''));
+          const isPdf = blob.type === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+          if (!isPdf) {
+            await cache.delete(request);
+            continue;
+          }
+          const images = await convertPdfToImages(await blob.arrayBuffer());
+          const baseTitle = fileName.replace(/\.pdf$/i, '');
+          for (let i = 0; i < images.length; i++) {
+            if (cancelled) return;
+            await savePageToDb(images[i], `${baseTitle} - Page ${i + 1}`);
+          }
+          await cache.delete(request);
+        }
+      } catch (error) {
+        console.warn('Could not import a shared file:', error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const getCategoryAndChildren = (catId, allCats) => {
     let ids = [catId];
