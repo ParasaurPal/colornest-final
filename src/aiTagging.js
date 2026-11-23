@@ -65,26 +65,32 @@ export async function suggestPageTags({ apiKey, imageUrl, fileName }) {
   return tags;
 }
 
-export async function scanAndTagPage(page, apiKey) {
-  if (!page?.imageUrl) throw new Error('This page has no locally stored image to scan.');
-  const suggestedTags = await suggestPageTags({
-    apiKey,
-    imageUrl: page.imageUrl,
-    fileName: page.title,
-  });
+export async function applyPageTagSuggestions(page, suggestedTags) {
   const { db } = await import('./db');
-  const mergedTags = [...new Set([...(page.tags || []), ...suggestedTags])];
+  const cleanTags = [...new Set((suggestedTags || []).map(tag => String(tag).trim().toLowerCase()).filter(Boolean))];
+  const mergedTags = [...new Set([...(page.tags || []), ...cleanTags])];
   await db.transaction('rw', db.pages, db.tags, async () => {
     await db.pages.update(page.id, {
       tags: mergedTags,
-      aiSuggestedTags: suggestedTags,
+      aiSuggestedTags: cleanTags,
       aiScannedAt: Date.now(),
       updatedAt: Date.now(),
     });
-    for (const name of suggestedTags) {
+    for (const name of cleanTags) {
       const exists = await db.tags.where('name').equals(name).first();
       if (!exists) await db.tags.add({ name, createdAt: Date.now() });
     }
   });
+  return cleanTags;
+}
+
+export async function scanAndTagPage(page, apiKey) {
+  if (!page?.imageUrl && !page?.thumbnailUrl) throw new Error('This page has no locally stored image to scan.');
+  const suggestedTags = await suggestPageTags({
+    apiKey,
+    imageUrl: page.imageUrl || page.thumbnailUrl,
+    fileName: page.title,
+  });
+  await applyPageTagSuggestions(page, suggestedTags);
   return suggestedTags;
 }
