@@ -168,9 +168,11 @@ class DriveSyncManager(
 
         // One recursive listing of the whole ColorNest tree.
         val remoteById = listTree(service, rootId).associateBy { it.id }
-        val categoryIdByFolder = categories
-            .mapNotNull { cat -> cat.driveFolderId?.let { it to cat.id } }
-            .toMap()
+        // ensureCategoryFolder() may have just created these IDs in Room.
+        // Build the reverse lookup from the IDs returned in this same sync,
+        // not from the stale category objects loaded before folder creation.
+        val categoryIdByFolder = folderIdByCategory.entries
+            .associate { (categoryId, folderId) -> folderId to categoryId }
         val tombstones = readTombstones()
         val localDriveIds = pageDao.getAllPages()
             .mapNotNull { it.driveFileId }
@@ -315,13 +317,16 @@ class DriveSyncManager(
      * "Also wipe Cloud Folder" option). Trash only — never a permanent
      * delete. Best-effort: never throws.
      */
-    suspend fun trashRootFolder() = withContext(Dispatchers.IO) {
+    suspend fun trashRootFolder(): Boolean = withContext(Dispatchers.IO) {
+        val service = buildService() ?: return@withContext false
         try {
-            val service = buildService() ?: return@withContext
-            val rootId = findFolder(service, ROOT_FOLDER_NAME, "root") ?: return@withContext
+            val rootId = findFolder(service, ROOT_FOLDER_NAME, "root")
+                ?: return@withContext true
             service.files().update(rootId, DriveFile().setTrashed(true)).execute()
+            true
         } catch (e: Exception) {
-            // Offline or already gone.
+            // The caller must not erase local data if cloud deletion failed.
+            false
         }
     }
 
