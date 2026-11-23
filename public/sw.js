@@ -23,7 +23,34 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  if (request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin) return;
+
+  // Android share target: a PDF shared to ColorNest is POSTed here. Stash
+  // the files in a cache the app reads when it opens, then open the app.
+  // The cache name deliberately does not start with "colornest-", so the
+  // activate handler above never deletes a share that is still waiting.
+  if (request.method === "POST" && url.pathname === BASE_URL + "share-target") {
+    event.respondWith((async () => {
+      try {
+        const formData = await request.formData();
+        const files = formData.getAll("shared-files").filter((entry) => entry instanceof File);
+        if (files.length > 0) {
+          const cache = await caches.open("share-target-pending");
+          await Promise.all(files.map((file, index) => {
+            const key = `${BASE_URL}share-target/${Date.now()}-${index}-${encodeURIComponent(file.name)}`;
+            return cache.put(key, new Response(file, { headers: { "Content-Type": file.type } }));
+          }));
+        }
+      } catch (error) {
+        // If the share can't be stashed, still open the app — the file can
+        // be imported manually from there.
+      }
+      return Response.redirect(self.registration.scope, 303);
+    })());
+    return;
+  }
+
+  if (request.method !== "GET") return;
   if (!url.pathname.startsWith(BASE_URL)) return;
 
   if (request.mode === "navigate") {

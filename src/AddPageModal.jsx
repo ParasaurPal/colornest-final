@@ -1,9 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { db } from './db';
 import { X, Upload, Loader2, FileText } from 'lucide-react';
 import { convertPdfToImages } from './pdfConverter';
-import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
-import { tryCreateThumbnail } from './thumbnails';
+import { savePageToDb } from './pageImport';
 
 export default function AddPageModal({ isOpen, onClose }) {
   const fileInputRef = useRef(null);
@@ -12,29 +10,6 @@ export default function AddPageModal({ isOpen, onClose }) {
   const [progressPercent, setProgressPercent] = useState(0);
 
   if (!isOpen) return null;
-
-  const savePageToDb = async (base64Data, title = 'Untitled page') => {
-    const transparentImage = await removeWhiteBackground(base64Data);
-    const thumbnailUrl = await tryCreateThumbnail(transparentImage);
-    await db.pages.add({
-      title,
-      categoryId: null,
-      complexity: 'Beginner',
-      time: 'TBD',
-      tool: 'TBD',
-      imageUrl: transparentImage,
-      ...(thumbnailUrl ? { thumbnailUrl } : {}),
-      isFavorite: 0,
-      isCompleted: 0,
-      progress: 0,
-      isUncategorized: 1,
-      tags: [],
-      whiteBackgroundProcessed: true,
-      whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
-      syncId: globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      updatedAt: Date.now(),
-    });
-  };
 
   const handleFileUpload = async (event) => {
     const files = Array.from(event.target.files || []);
