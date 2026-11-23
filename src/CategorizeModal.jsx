@@ -10,16 +10,23 @@ export default function CategorizeModal({ page, categories, onClose }) {
   const handleSave = async () => {
     const tagArray = tags.split(',').map(t => t.trim()).filter(t => t !== "");
     const newCategoryId = selectedCat ? parseInt(selectedCat) : null;
+    const selectedCategory = newCategoryId
+      ? categories.find(category => category.id === newCategoryId)
+      : null;
+    if (selectedCategory?.name?.trim()) {
+      tagArray.push(selectedCategory.name.trim());
+    }
+    const uniqueTags = [...new Set(tagArray)];
     
     await db.transaction('rw', db.pages, db.tags, async () => {
       await db.pages.update(page.id, {
         title,
         categoryId: newCategoryId,
         isUncategorized: 0,
-        tags: tagArray,
+        tags: uniqueTags,
         updatedAt: Date.now(),
       });
-      for (const name of tagArray) {
+      for (const name of uniqueTags) {
         const existing = await db.tags.where('name').equals(name).first();
         if (!existing) await db.tags.add({ name, createdAt: Date.now() });
       }
