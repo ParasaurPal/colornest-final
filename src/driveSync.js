@@ -28,7 +28,7 @@ import {
 } from './driveService';
 import { DRIVE_ROOT_FOLDER_NAME, DRIVE_UNTAGGED_FOLDER_NAME } from './driveConfig';
 import { convertPdfToImages } from './pdfConverter';
-import { removeWhiteBackground } from './whiteBackground';
+import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
 
 const KEY_SCAN_ON_OPEN = 'driveScanOnOpen';
@@ -378,6 +378,7 @@ export async function syncDrive() {
           driveFileId: null,
           tags: [],
           whiteBackgroundProcessed: true,
+          whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
         }));
         await db.transaction('rw', db.pages, db.settings, async () => {
           await db.pages.bulkAdd(newPages);
@@ -453,6 +454,7 @@ export async function syncDrive() {
       syncId: metadata?.syncId || undefined,
       tags: Array.isArray(metadata?.tags) ? metadata.tags : [],
       whiteBackgroundProcessed: true,
+      whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
     });
     localDriveIds.add(remote.id);
     downloaded++;

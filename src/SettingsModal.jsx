@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from './db';
 import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
-import { removeWhiteBackground } from './whiteBackground';
+import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
 import { isDriveConfigured } from './driveConfig';
 import { connectDrive, disconnectDrive, isDriveConnected, getDriveAccountEmail } from './driveService';
@@ -15,6 +15,11 @@ import {
   getLastSyncMillis,
   triggerBackgroundSync,
 } from './driveSync';
+
+// A page needs (re)processing when it was never processed, or when it was
+// processed with an older version of the white-background filter.
+const needsWhiteBackgroundReprocessing = (page) =>
+  page.whiteBackgroundProcessed !== true || (page.whiteBackgroundVersion || 0) < WHITE_BACKGROUND_VERSION;
 
 export default function SettingsModal({ onClose }) {
   const [isSeeding, setIsSeeding] = useState(false);
@@ -65,7 +70,7 @@ export default function SettingsModal({ onClose }) {
 
   useEffect(() => {
     let active = true;
-    db.pages.filter(page => page.whiteBackgroundProcessed !== true).count()
+    db.pages.filter(needsWhiteBackgroundReprocessing).count()
       .then(count => { if (active) setUnprocessedImageCount(count); })
       .catch(error => console.warn('Could not count unprocessed pages:', error));
     return () => { active = false; };
@@ -146,7 +151,7 @@ export default function SettingsModal({ onClose }) {
     if (imageProcessing) return;
     try {
       const pendingPages = await db.pages
-        .filter(page => page.whiteBackgroundProcessed !== true)
+        .filter(needsWhiteBackgroundReprocessing)
         .toArray();
       if (!pendingPages.length) {
         setUnprocessedImageCount(0);
@@ -174,6 +179,7 @@ export default function SettingsModal({ onClose }) {
             // backfill retries it on the next app open.
             thumbnailUrl: thumbnailUrl || null,
             whiteBackgroundProcessed: true,
+            whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
           });
           processed++;
         } catch (error) {
@@ -184,7 +190,7 @@ export default function SettingsModal({ onClose }) {
       }
 
       const remaining = await db.pages
-        .filter(page => page.whiteBackgroundProcessed !== true)
+        .filter(needsWhiteBackgroundReprocessing)
         .count();
       setUnprocessedImageCount(remaining);
       setImageProcessStatus(`Finished: ${processed} processed, ${failed} failed.${remaining ? ` ${remaining} pages remain and can be retried.` : ''}`);
@@ -310,7 +316,7 @@ export default function SettingsModal({ onClose }) {
                 <h4 className="text-sm font-bold text-gray-800 dark:text-white">White background removal</h4>
                 <span className="text-xs text-gray-500 dark:text-gray-400">{unprocessedImageCount} remaining</span>
               </div>
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Process pages already in your library. Titles, categories, tags, favorites, and other details are preserved. Pages already processed by ColorNest are skipped.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">Process pages already in your library. Titles, categories, tags, favorites, and other details are preserved. Pages already processed with the current filter are skipped; pages done with an older filter are refreshed.</p>
               <button onClick={handleProcessExistingImages} disabled={imageProcessing || unprocessedImageCount === 0} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">
                 {imageProcessing ? `Processing ${imageProgress.done} of ${imageProgress.total}…` : unprocessedImageCount ? 'Process existing library' : 'Library already processed'}
               </button>
