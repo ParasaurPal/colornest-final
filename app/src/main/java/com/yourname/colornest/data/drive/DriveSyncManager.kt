@@ -104,6 +104,23 @@ class DriveSyncManager(
     }
 
     suspend fun connect(accountName: String) = withContext(Dispatchers.IO) {
+        val previousAccount = settingDao.getSetting(KEY_ACCOUNT)
+        if (!previousAccount.isNullOrBlank() && previousAccount != accountName) {
+            // Drive file/folder IDs belong to the old account. Never interpret
+            // them as missing files in the new account: that could delete local
+            // pages during the first sync after switching accounts.
+            pageDao.getAllPages().forEach { page ->
+                if (page.driveFileId != null) {
+                    pageDao.updatePage(page.copy(driveFileId = null))
+                }
+            }
+            categoryDao.getAllCategories().forEach { category ->
+                if (category.driveFolderId != null) {
+                    categoryDao.updateCategory(category.copy(driveFolderId = null))
+                }
+            }
+            settingDao.deleteSetting(KEY_TOMBSTONES)
+        }
         settingDao.setSetting(Setting(key = KEY_ACCOUNT, value = accountName))
     }
 
