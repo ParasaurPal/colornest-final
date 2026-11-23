@@ -6,13 +6,22 @@ import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackgrou
 import { tryCreateThumbnail } from './thumbnails';
 import { isDriveConfigured } from './driveConfig';
 import { connectDrive, disconnectDrive, isDriveConnected, getDriveAccountEmail } from './driveService';
-import { trashRootFolder } from './driveSync';
+import {
+  syncDrive,
+  formatSyncSummary,
+  trashRootFolder,
+  getLastSyncMillis,
+  isScanOnOpenEnabled,
+  setScanOnOpenEnabled,
+  triggerBackgroundSync,
+} from './driveSync';
 import DriveBrowserModal from './DriveBrowserModal';
 
 // A page needs (re)processing when it was never processed, or when it was
 // processed with an older version of the white-background filter.
+// Preview-only pages have no local image, so they are never reprocessed.
 const needsWhiteBackgroundReprocessing = (page) =>
-  page.whiteBackgroundProcessed !== true || (page.whiteBackgroundVersion || 0) < WHITE_BACKGROUND_VERSION;
+  Boolean(page.imageUrl) && (page.whiteBackgroundProcessed !== true || (page.whiteBackgroundVersion || 0) < WHITE_BACKGROUND_VERSION);
 
 export default function SettingsModal({ onClose }) {
   const [isSeeding, setIsSeeding] = useState(false);
@@ -26,6 +35,9 @@ export default function SettingsModal({ onClose }) {
   const [driveConnected, setDriveConnected] = useState(false);
   const [driveAccount, setDriveAccount] = useState(null);
   const [driveStatus, setDriveStatus] = useState(null);
+  const [driveLastSync, setDriveLastSync] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [driveScanOnOpen, setDriveScanOnOpen] = useState(true);
   const [isDriveBrowserOpen, setIsDriveBrowserOpen] = useState(false);
   const [storageUsage, setStorageUsage] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
@@ -37,6 +49,8 @@ export default function SettingsModal({ onClose }) {
   const refreshDriveState = async () => {
     setDriveConnected(isDriveConnected());
     setDriveAccount(getDriveAccountEmail());
+    setDriveLastSync(await getLastSyncMillis());
+    setDriveScanOnOpen(await isScanOnOpenEnabled());
   };
 
   // Load the Drive state when the modal opens. The reads are async (Dexie),
@@ -46,9 +60,13 @@ export default function SettingsModal({ onClose }) {
     (async () => {
       const connected = isDriveConnected();
       const account = getDriveAccountEmail();
+      const lastSync = await getLastSyncMillis();
+      const scanOnOpen = await isScanOnOpenEnabled();
       if (!active) return;
       setDriveConnected(connected);
       setDriveAccount(account);
+      setDriveLastSync(lastSync);
+      setDriveScanOnOpen(scanOnOpen);
     })();
     return () => { active = false; };
   }, []);
@@ -123,6 +141,7 @@ export default function SettingsModal({ onClose }) {
         if (backup.pages.length) await db.pages.bulkAdd(backup.pages);
         if (Array.isArray(backup.tags) && backup.tags.length) await db.tags.bulkAdd(backup.tags);
       });
+      triggerBackgroundSync();
       alert('Backup restored. Your library is ready on this device.');
     } catch (error) {
       alert('Backup restore failed: ' + error.message);
@@ -190,7 +209,8 @@ export default function SettingsModal({ onClose }) {
       setDriveStatus("Connecting…");
       await connectDrive();
       await refreshDriveState();
-      setDriveStatus("Connected — browse Google Drive to preview and download files.");
+      setDriveStatus("Connected — importing new Drive files…");
+      handleDriveSyncNow();
     } catch (e) {
       setDriveStatus("Could not connect: " + e.message);
     }
@@ -200,6 +220,26 @@ export default function SettingsModal({ onClose }) {
     await disconnectDrive();
     await refreshDriveState();
     setDriveStatus("Disconnected from Google Drive");
+  };
+
+  const handleDriveSyncNow = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setDriveStatus("Checking for new Drive files…");
+    try {
+      const result = await syncDrive();
+      setDriveStatus(formatSyncSummary(result));
+    } catch (e) {
+      setDriveStatus("Sync failed: " + e.message.slice(0, 120));
+    } finally {
+      setDriveLastSync(await getLastSyncMillis());
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDriveScanToggle = async (enabled) => {
+    setDriveScanOnOpen(enabled);
+    await setScanOnOpenEnabled(enabled);
   };
 
   const handleClearAllTags = async () => {
@@ -304,8 +344,13 @@ export default function SettingsModal({ onClose }) {
             {!driveConnected && (
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 mb-2">
                 {isDriveConfigured()
-                  ? 'Connect to browse your ColorNest folder in Google Drive. Files stay as previews until you download the ones you want.'
+                  ? 'Connect to browse your ColorNest folder in Google Drive. New files are imported automatically as small previews — full files stay in Drive until you download the ones you want.'
                   : 'Google Drive is not set up yet — add your Web OAuth client ID to a .env file first (see DRIVE_SETUP.md in the project).'}
+              </p>
+            )}
+            {driveLastSync && (
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                Last synced {new Date(driveLastSync).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               </p>
             )}
             {driveStatus && (
@@ -321,7 +366,14 @@ export default function SettingsModal({ onClose }) {
                     Disconnect
                   </button>
                 </div>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Preview only — nothing is downloaded to this device until you download it from the browser. Downloading a PDF from ColorNest/PDF Inbox converts it into pages and moves the original to Processed PDFs.</p>
+                <button onClick={handleDriveSyncNow} disabled={isSyncing} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">
+                  {isSyncing ? 'Syncing…' : 'Import previews'}
+                </button>
+                <label className="flex items-center gap-3 mt-3 cursor-pointer">
+                  <input type="checkbox" checked={driveScanOnOpen} onChange={(e) => handleDriveScanToggle(e.target.checked)} className="w-5 h-5 accent-purple-600" />
+                  <span className="text-sm font-bold text-gray-800 dark:text-white">Import new Drive files when the app opens</span>
+                </label>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">New Drive files are imported automatically as small previews when the app opens — full files are never downloaded unless you download them from the browser or share them. Import previews checks for new files now. PDFs from ColorNest/PDF Inbox are moved to Processed PDFs after their preview is imported. Downloading a PDF from the browser converts it into pages.</p>
               </>
             ) : (
               <button onClick={handleDriveConnect} disabled={!isDriveConfigured()} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">

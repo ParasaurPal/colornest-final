@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Heart, Plus, Trash2, Moon, Sun, Menu, Settings, ExternalLink, Tags, Maximize2, Minimize2, Download, X } from 'lucide-react';
+import { Search, Heart, Plus, Trash2, Moon, Sun, Menu, Settings, ExternalLink, Tags, Maximize2, Minimize2, Download, Share2, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import AddPageModal from './AddPageModal';
@@ -7,7 +7,8 @@ import SideMenu from './SideMenu';
 import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding';
-import { deletePageWithDrive } from './driveSync';
+import { triggerBackgroundSync, deletePageWithDrive, subscribeScanProgress, fetchTempPreviewUrl } from './driveSync';
+import { downloadFile } from './driveService';
 import { tryCreateThumbnail } from './thumbnails';
 
 function App() {
@@ -27,6 +28,10 @@ function App() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement || window.matchMedia('(display-mode: fullscreen)').matches));
   const [viewingPage, setViewingPage] = useState(null);
+  const [scanProgress, setScanProgress] = useState(null);
+  const [tempPreviewUrl, setTempPreviewUrl] = useState(null);
+  const [isTempPreviewLoading, setIsTempPreviewLoading] = useState(false);
+  const [shareStatus, setShareStatus] = useState('');
 
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
@@ -40,6 +45,10 @@ function App() {
     db.settings.get('hasSeenTutorial').then(setting => {
       if (!setting || !setting.value) setShowTutorial(true);
     });
+    const unsubscribeScanProgress = subscribeScanProgress(setScanProgress);
+    triggerBackgroundSync();
+    const retryDriveSync = () => { if (navigator.onLine) triggerBackgroundSync(); };
+    window.addEventListener('online', retryDriveSync);
 
     const captureInstall = (event) => {
       event.preventDefault();
@@ -49,6 +58,8 @@ function App() {
     window.addEventListener('beforeinstallprompt', captureInstall);
     document.addEventListener('fullscreenchange', updateFullscreen);
     return () => {
+      unsubscribeScanProgress();
+      window.removeEventListener('online', retryDriveSync);
       window.removeEventListener('beforeinstallprompt', captureInstall);
       document.removeEventListener('fullscreenchange', updateFullscreen);
     };
@@ -84,6 +95,32 @@ function App() {
     return () => { cancelled = true; };
   }, []);
 
+
+  // Preview-only pages hold just a small thumbnail. Opening one fetches a
+  // larger temporary preview from Drive, kept only in memory — it is never
+  // written to storage and disappears when the viewer closes or the app
+  // closes.
+  useEffect(() => {
+    setShareStatus('');
+    if (!viewingPage?.isPreviewOnly) {
+      setTempPreviewUrl(null);
+      setIsTempPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsTempPreviewLoading(true);
+    setTempPreviewUrl(null);
+    fetchTempPreviewUrl(viewingPage).then((url) => {
+      if (!cancelled) {
+        setTempPreviewUrl(url);
+        setIsTempPreviewLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) setIsTempPreviewLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [viewingPage]);
+
   const completeTutorial = async () => {
     await db.settings.put({ key: 'hasSeenTutorial', value: true });
     setShowTutorial(false);
@@ -111,6 +148,42 @@ function App() {
     installPrompt.prompt();
     await installPrompt.userChoice;
     setInstallPrompt(null);
+  };
+
+  // Shares a page with another program. Pages linked to Drive share the
+  // original file from Drive (downloaded just for the share, never stored);
+  // local pages share the stored image. Falls back to a download when the
+  // device can't share files.
+  const handleSharePage = async (page) => {
+    setShareStatus('');
+    try {
+      let blob;
+      if (page.driveFileId) {
+        blob = await downloadFile(page.driveFileId);
+      } else if (page.imageUrl) {
+        blob = await (await fetch(page.imageUrl)).blob();
+      } else {
+        setShareStatus('Nothing to share for this page.');
+        return;
+      }
+      const ext = blob.type === 'application/pdf' ? 'pdf' : (blob.type.split('/')[1] || 'png');
+      const fileName = `${(page.title || 'coloring-page').replace(/[\/:*?"<>|]/g, '')}.${ext}`;
+      const file = new File([blob], fileName, { type: blob.type });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: page.title || 'Coloring page' });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        link.click();
+        URL.revokeObjectURL(url);
+        setShareStatus('Sharing is not supported here — the original was downloaded instead.');
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      setShareStatus('Could not share: ' + (error.message || 'Unknown error'));
+    }
   };
 
   // Open large/data-URL images inside the app. Sending a huge base64 URL
@@ -260,6 +333,17 @@ function App() {
             <div className="flex items-center gap-2 mt-3 text-xs text-gray-600 dark:text-gray-300"><span>Match:</span><button onClick={() => setTagMatchMode('all')} className={`px-2 py-1 rounded ${tagMatchMode === 'all' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700'}`}>All selected</button><button onClick={() => setTagMatchMode('any')} className={`px-2 py-1 rounded ${tagMatchMode === 'any' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-gray-700'}`}>Any selected</button></div>
           </section>
         )}
+        {scanProgress?.active && (
+          <div className="w-full pt-1" role="status" aria-live="polite">
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <span className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 truncate">{scanProgress.message}</span>
+              <span className="text-[11px] tabular-nums text-gray-500 dark:text-gray-400">{scanProgress.percent}%</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-purple-100 dark:bg-gray-700 overflow-hidden">
+              <div className="h-full rounded-full bg-purple-600 transition-all duration-300" style={{ width: `${scanProgress.percent}%` }} />
+            </div>
+          </div>
+        )}
       </header>
 
       <div className="px-4 mt-4">        <div className="flex items-center justify-between gap-2">
@@ -278,6 +362,7 @@ function App() {
           <article key={page.id} className="bg-white dark:bg-gray-800 rounded-[24px] p-2 pb-3 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col relative">
             <div className="relative h-40 bg-gray-50 dark:bg-gray-900 rounded-[18px] overflow-hidden">
               <img src={page.thumbnailUrl || page.imageUrl} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
+              {page.isPreviewOnly === 1 && <span className="absolute top-2 left-2 text-[9px] font-bold bg-black/60 text-white px-1.5 py-0.5 rounded">Preview</span>}
               <button onClick={async () => { await db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
                 <Heart size={13} fill={page.isFavorite === 1 ? '#ec4899' : 'none'} color={page.isFavorite === 1 ? '#ec4899' : '#9ca3af'} />
               </button>
@@ -302,15 +387,42 @@ function App() {
         <div className="fixed inset-0 z-[250] bg-black/95 flex flex-col" role="dialog" aria-modal="true" aria-label={viewingPage.title}>
           <div className="flex items-center justify-between gap-3 p-3 text-white">
             <h2 className="font-semibold text-sm truncate">{viewingPage.title || 'Coloring page'}</h2>
-            <button onClick={() => setViewingPage(null)} className="p-2 rounded-full bg-white/15" aria-label="Close page"><X size={22} /></button>
+            <div className="flex items-center gap-2 shrink-0">
+              {viewingPage.isPreviewOnly === 1 && <span className="text-[10px] font-bold bg-white/15 text-white px-1.5 py-0.5 rounded">Preview only</span>}
+              <button onClick={() => handleSharePage(viewingPage)} className="p-2 rounded-full bg-white/15" aria-label="Share page"><Share2 size={20} /></button>
+              <button onClick={() => { setViewingPage(null); setShareStatus(''); }} className="p-2 rounded-full bg-white/15" aria-label="Close page"><X size={22} /></button>
+            </div>
           </div>
+          {shareStatus && <p className="px-3 pb-2 text-xs text-gray-300" role="status">{shareStatus}</p>}
           <div className="flex-1 min-h-0 flex items-center justify-center overflow-auto p-2">
-            <img
-              src={viewingPage.imageUrl}
-              alt={viewingPage.title || 'Coloring page'}
-              className="max-w-full max-h-full object-contain"
-              onError={(event) => { event.currentTarget.alt = 'This image could not be loaded.'; event.currentTarget.style.display = 'none'; }}
-            />
+            {viewingPage.isPreviewOnly === 1 ? (
+              isTempPreviewLoading ? (
+                <p className="text-sm text-gray-400">Loading preview…</p>
+              ) : (tempPreviewUrl || viewingPage.thumbnailUrl) ? (
+                <img
+                  src={tempPreviewUrl || viewingPage.thumbnailUrl}
+                  alt={viewingPage.title || 'Coloring page'}
+                  className="max-w-full max-h-full object-contain"
+                  onError={(event) => {
+                    if (tempPreviewUrl && viewingPage.thumbnailUrl && event.currentTarget.src !== viewingPage.thumbnailUrl) {
+                      event.currentTarget.src = viewingPage.thumbnailUrl;
+                    } else {
+                      event.currentTarget.alt = 'This preview could not be loaded.';
+                      event.currentTarget.style.display = 'none';
+                    }
+                  }}
+                />
+              ) : (
+                <p className="text-sm text-gray-400">No preview available for this file.</p>
+              )
+            ) : (
+              <img
+                src={viewingPage.imageUrl}
+                alt={viewingPage.title || 'Coloring page'}
+                className="max-w-full max-h-full object-contain"
+                onError={(event) => { event.currentTarget.alt = 'This image could not be loaded.'; event.currentTarget.style.display = 'none'; }}
+              />
+            )}
           </div>
         </div>
       )}

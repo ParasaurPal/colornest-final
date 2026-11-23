@@ -65,7 +65,7 @@ export default function DriveBrowserModal({ onClose }) {
     try {
       const result = await downloadDriveFile(entry);
       const markSaved = (file) => file.id === entry.id
-        ? { ...file, inLibrary: true, importedPdf: file.isPdf ? true : file.importedPdf }
+        ? { ...file, inLibrary: true, libraryPreviewOnly: false, importedPdf: file.isPdf ? true : file.importedPdf }
         : file;
       setFiles((current) => (current || []).map(markSaved));
       setSelected((current) => (current && current.id === entry.id ? markSaved(current) : current));
@@ -79,7 +79,9 @@ export default function DriveBrowserModal({ onClose }) {
     }
   };
 
-  const alreadyHave = (entry) => entry.inLibrary || entry.importedPdf;
+  // A preview-only library entry still needs its full file, so Download stays
+  // available for it — downloading upgrades the entry to a full page.
+  const alreadyHave = (entry) => (entry.inLibrary || entry.importedPdf) && !entry.libraryPreviewOnly;
 
   return (
     <div className="fixed inset-0 bg-black/60 flex justify-center items-center z-[300] p-4">
@@ -112,7 +114,7 @@ export default function DriveBrowserModal({ onClose }) {
               )}
             </div>
             <h3 className="font-bold text-gray-800 dark:text-white mb-1 break-words">{selected.name}</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">{selected.isPdf ? 'PDF' : 'Image'}{alreadyHave(selected) ? ' · Already in your library' : ''}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">{selected.isPdf ? 'PDF' : 'Image'}{selected.libraryPreviewOnly ? ' · Preview in your library' : alreadyHave(selected) ? ' · Already in your library' : ''}</p>
             <button onClick={() => handleDownload(selected)} disabled={downloadingId || alreadyHave(selected)} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50 flex items-center justify-center gap-2">
               {downloadingId === selected.id ? 'Downloading…' : alreadyHave(selected) ? (<><Check size={16} /> In your library</>) : (<><Download size={16} /> Download</>)}
             </button>
@@ -137,6 +139,7 @@ export default function DriveBrowserModal({ onClose }) {
                     <FileIcon entry={entry} />
                     {entry.isPdf && <span className="absolute bottom-1 left-1 text-[9px] font-bold bg-black/60 text-white px-1.5 py-0.5 rounded">PDF</span>}
                     {alreadyHave(entry) && <span className="absolute top-1 right-1 text-[9px] font-bold bg-green-600 text-white px-1.5 py-0.5 rounded flex items-center gap-0.5"><Check size={10} /> Saved</span>}
+                    {entry.libraryPreviewOnly && <span className="absolute top-1 right-1 text-[9px] font-bold bg-purple-600 text-white px-1.5 py-0.5 rounded">Preview</span>}
                   </button>
                   <div className="p-2">
                     <p className="text-xs font-bold text-gray-800 dark:text-white truncate mb-2" title={entry.name}>{entry.name}</p>

@@ -276,6 +276,39 @@ export async function downloadFile(fileId) {
   return res.blob();
 }
 
+// Drive thumbnail links end with a size suffix like =s220; ask for a
+// larger preview when one is needed.
+export function largeThumbnailUrl(link) {
+  if (!link) return null;
+  return link.replace(/=s\d+$/, '=s1600');
+}
+
+/**
+ * Downloads a Drive thumbnail and returns it as a data URL, so previews
+ * work offline and don't depend on short-lived thumbnail links. Returns
+ * null when the file has no thumbnail or the download fails (callers fall
+ * back to using the thumbnail link directly).
+ */
+export async function fetchThumbnailDataUrl(thumbnailLink) {
+  if (!thumbnailLink) return null;
+  try {
+    const token = await getAccessToken();
+    const res = await fetch(thumbnailLink, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function moveFile(fileId, currentParentIds, newParentId) {
   const params = new URLSearchParams({
     addParents: newParentId,
