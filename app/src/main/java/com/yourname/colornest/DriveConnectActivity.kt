@@ -9,14 +9,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
+import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException
 import com.google.api.services.drive.DriveScopes
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.drive.DriveSyncManager
 import kotlinx.coroutines.launch
 
 /**
- * Small bridge for Google's account picker. Once an account is selected,
- * DriveSyncManager stores the account and performs the native Android sync.
+ * Handles account selection and Google's separate OAuth permission prompt.
+ * Selecting an account does not itself grant Drive API access; the first API
+ * request can return a recoverable authorization intent that must be shown.
  */
 class DriveConnectActivity : ComponentActivity() {
     companion object {
@@ -31,7 +33,7 @@ class DriveConnectActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode != Activity.RESULT_OK) {
-            finishWithMessage("Google Drive connection was cancelled.", false)
+            finishWithMessage("Google Drive account selection was cancelled.", false)
             return@registerForActivityResult
         }
 
@@ -46,8 +48,24 @@ class DriveConnectActivity : ComponentActivity() {
                 driveManager.connect(accountName)
                 syncAndFinish()
             } catch (error: Exception) {
-                finishWithMessage("Could not connect Google Drive: ${error.localizedMessage ?: "Unknown error"}", false)
+                finishWithMessage(
+                    "Could not connect Google Drive: ${error.localizedMessage ?: "Unknown error"}",
+                    false
+                )
             }
+        }
+    }
+
+    private val authorizationResolution = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            lifecycleScope.launch { syncAndFinish() }
+        } else {
+            finishWithMessage(
+                "Google Drive permission was not granted. You can try connecting again in Settings.",
+                false
+            )
         }
     }
 
@@ -88,6 +106,11 @@ class DriveConnectActivity : ComponentActivity() {
         try {
             val result = driveManager.sync()
             finishWithMessage(result.summary(), !result.notConnected)
+        } catch (error: UserRecoverableAuthIOException) {
+            // Google requires a separate consent/re-authentication step after
+            // account selection. Launch its resolution UI, then retry sync.
+            statusView.text = "Approve ColorNest's Google Drive access to continue."
+            authorizationResolution.launch(error.intent)
         } catch (error: Exception) {
             finishWithMessage(
                 "Google Drive sync failed: ${error.localizedMessage ?: "Check your connection and Drive permissions."}",
