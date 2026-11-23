@@ -1,19 +1,15 @@
-// Converts white to transparency (like GIMP's "Color to Alpha" with white):
-// every pixel is split into a white component, which becomes transparency,
-// and the remaining color. Pure white becomes fully transparent, black is
-// untouched, and light colors keep their hue at lower opacity, so the
-// result composites identically over a white background.
-// Output is PNG so transparency is preserved.
+// Converts coloring-page artwork into black line art with transparency.
+// Neutral black/gray pixels become black ink with alpha based on darkness;
+// colored pixels are discarded. This preserves antialiased edges while
+// removing white paper and colored backgrounds. Output is PNG to retain alpha.
 
-// Bump this when the filter algorithm changes so Settings can offer to
-// reprocess pages done with an older version. Version 1 was the old
-// threshold/ramp filter (pages processed before versioning have no stamp).
-export const WHITE_BACKGROUND_VERSION = 2;
+export const WHITE_BACKGROUND_VERSION = 3;
 
-// Pixels ending up below this alpha are set fully transparent, so faint
-// JPEG halos and paper specks vanish instead of lingering as
-// near-invisible smudges.
-const MIN_ALPHA = 10;
+// Allow small RGB differences from scanner/JPEG noise while rejecting
+// visibly colored pixels. Very dark pixels are accepted even with slight hue.
+const MAX_NEUTRAL_CHANNEL_SPREAD = 24;
+const VERY_DARK_MAX_CHANNEL = 24;
+const MIN_ALPHA = 12;
 
 export async function removeWhiteBackground(source) {
   let image;
@@ -45,27 +41,34 @@ export async function removeWhiteBackground(source) {
 
     for (let i = 0; i < pixels.length; i += 4) {
       const oldAlpha = pixels[i + 3];
-      // Already fully transparent: stays transparent, so re-running the
-      // filter never resurrects a pixel as opaque black.
       if (oldAlpha === 0) continue;
-      const white = Math.min(pixels[i], pixels[i + 1], pixels[i + 2]);
-      if (white === 255) {
-        // Pure white: fully transparent (this also avoids dividing by zero below).
-        pixels[i] = 0; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 0;
+
+      const red = pixels[i];
+      const green = pixels[i + 1];
+      const blue = pixels[i + 2];
+      const maxChannel = Math.max(red, green, blue);
+      const minChannel = Math.min(red, green, blue);
+      const channelSpread = maxChannel - minChannel;
+
+      // Discard colored pixels instead of preserving their hue.
+      // Near-black pixels are accepted because tiny channel differences
+      // can be introduced by image compression and scanning.
+      if (channelSpread > MAX_NEUTRAL_CHANNEL_SPREAD && maxChannel > VERY_DARK_MAX_CHANNEL) {
+        pixels[i] = 0;
+        pixels[i + 1] = 0;
+        pixels[i + 2] = 0;
+        pixels[i + 3] = 0;
         continue;
       }
-      const newAlpha = Math.round(oldAlpha * (1 - white / 255));
-      if (newAlpha < MIN_ALPHA) {
-        pixels[i] = 0; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 0;
-        continue;
-      }
-      // Un-multiply the color so hues survive: remove the white component
-      // and rescale the remainder to full strength.
-      const scale = 255 / (255 - white);
-      pixels[i] = Math.min(255, Math.round((pixels[i] - white) * scale));
-      pixels[i + 1] = Math.min(255, Math.round((pixels[i + 1] - white) * scale));
-      pixels[i + 2] = Math.min(255, Math.round((pixels[i + 2] - white) * scale));
-      pixels[i + 3] = newAlpha;
+
+      // Convert grayscale darkness to opacity: black is fully opaque,
+      // white is fully transparent, and gray antialiased edges stay smooth.
+      const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+      const newAlpha = Math.round(oldAlpha * (1 - luminance / 255));
+      pixels[i] = 0;
+      pixels[i + 1] = 0;
+      pixels[i + 2] = 0;
+      pixels[i + 3] = newAlpha < MIN_ALPHA ? 0 : newAlpha;
     }
 
     context.putImageData(frame, 0, 0);
