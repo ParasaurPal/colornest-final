@@ -1,6 +1,6 @@
 # Google Drive sync setup
 
-ColorNest keeps the working library on the current device and optionally synchronizes it with Google Drive. Connect the **same Google account** from every device that should share the library.
+ColorNest keeps the working library on the current device and optionally synchronizes it with Google Drive. The PWA and native Android app have separate setup flows and currently synchronize different metadata. Follow the matching client section below.
 
 ## What sync stores
 
@@ -53,6 +53,21 @@ The PWA code is merged into `main`. To publish it, open repository **Settings �
 5. On each additional device, open the same hosted PWA, connect the same Google account, and run **Sync now**.
 
 The initial OAuth consent screen may show Google's unverified-app warning while your project remains in Testing mode. Only accounts listed as test users can connect in that mode.
+
+## Native Android app setup
+
+The Kotlin Android app uses Google Play services account selection and the Android app's signing identity. It does **not** use the PWA's `VITE_GOOGLE_CLIENT_ID`, a web OAuth client ID, or a client secret.
+
+1. In the same Google Cloud project, enable **Google Drive API** and configure the OAuth consent screen as **External**. Add your Google account as a test user while the app is in Testing mode.
+2. Create an OAuth client ID with application type **Android**.
+3. Enter this Android package name exactly: `com.aistudio.colornest.app`.
+4. Enter the SHA-1 certificate fingerprint for the APK you install. For a local debug build, run `./gradlew signingReport` and use the debug variant's SHA-1. For a release APK, use the release signing certificate's SHA-1. The package name and certificate must both match the installed APK.
+5. Keep the `drive.file` and `drive.readonly` scopes enabled in the consent configuration. The app requests these when Google Drive is connected.
+6. Install the Android APK, open **Settings → Google Drive → Connect / Sync Google Drive**, and choose the account. The first sync uploads the local images and imports images found in the app's Drive folders.
+
+The Android app stores its selected Google account in the local app database. To sync another device, install ColorNest there and connect the same Google account.
+
+**Important difference between clients:** the native Android sync currently mirrors images into category folders and uses filenames for page titles. It does not yet sync tags, favorites, completion progress, or all other page metadata. The PWA uses its own JSON sidecar metadata sync. The two clients should therefore be treated as separate libraries until cross-client metadata sync is implemented.
 
 ## Important storage notes
 
