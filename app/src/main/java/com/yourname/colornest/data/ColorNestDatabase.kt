@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.yourname.colornest.data.dao.CategoryDao
@@ -28,6 +29,54 @@ abstract class ColorNestDatabase : RoomDatabase() {
     abstract fun settingDao(): SettingDao
 
     companion object {
+        /**
+         * Version 1 contained the removed AI-only LearnedPattern table and
+         * temporary AI fields on pages. Preserve user-created page data while
+         * removing only those obsolete AI fields.
+         */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS pages_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        title TEXT NOT NULL,
+                        categoryId INTEGER,
+                        complexity TEXT NOT NULL,
+                        time TEXT NOT NULL,
+                        tool TEXT NOT NULL,
+                        imageUrl TEXT NOT NULL,
+                        isFavorite INTEGER NOT NULL,
+                        isCompleted INTEGER NOT NULL,
+                        progress INTEGER NOT NULL,
+                        isUncategorized INTEGER NOT NULL,
+                        tags TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO pages_new (
+                        id, title, categoryId, complexity, time, tool, imageUrl,
+                        isFavorite, isCompleted, progress, isUncategorized, tags, createdAt
+                    )
+                    SELECT
+                        id, title, categoryId, complexity, time, tool, imageUrl,
+                        isFavorite, isCompleted, progress, isUncategorized, tags, createdAt
+                    FROM pages
+                """.trimIndent())
+                db.execSQL("DROP TABLE pages")
+                db.execSQL("ALTER TABLE pages_new RENAME TO pages")
+                db.execSQL("DROP TABLE IF EXISTS learned_patterns")
+            }
+        }
+
+        /** Add nullable Drive identifiers without rebuilding or discarding existing rows. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pages ADD COLUMN driveFileId TEXT")
+                db.execSQL("ALTER TABLE categories ADD COLUMN driveFolderId TEXT")
+            }
+        }
+
         @Volatile
         private var INSTANCE: ColorNestDatabase? = null
 
@@ -39,7 +88,8 @@ abstract class ColorNestDatabase : RoomDatabase() {
                     "colornest_database"
                 )
                     .addCallback(DatabaseCallback())
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    // Never silently erase a user's coloring library on upgrade.
                     .build()
                 INSTANCE = instance
                 instance
