@@ -9,7 +9,7 @@ import { tryCreateThumbnail } from './thumbnails';
 export async function savePageToDb(base64Data, title = 'Untitled page') {
   const transparentImage = await removeWhiteBackground(base64Data);
   const thumbnailUrl = await tryCreateThumbnail(transparentImage);
-  await db.pages.add({
+  const pageId = await db.pages.add({
     title,
     categoryId: null,
     complexity: 'Beginner',
@@ -27,4 +27,5 @@ export async function savePageToDb(base64Data, title = 'Untitled page') {
     syncId: globalThis.crypto?.randomUUID?.() || `page-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     updatedAt: Date.now(),
   });
+  return pageId;
 }
