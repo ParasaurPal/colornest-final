@@ -69,6 +69,17 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
             resolver.notifyChange(DocumentsContract.buildChildDocumentsUri(authority, DOC_ALL), null)
             resolver.notifyChange(DocumentsContract.buildChildDocumentsUri(authority, DOC_FAVORITES), null)
             resolver.notifyChange(DocumentsContract.buildChildDocumentsUri(authority, DOC_UNTAGGED), null)
+            // Category contents are separate SAF directories. Notify each one so
+            // external pickers refresh after imports, deletes, and recategorization.
+            val categories = runBlocking(Dispatchers.IO) {
+                ColorNestDatabase.getDatabase(context).categoryDao().getAllCategories()
+            }
+            categories.forEach { category ->
+                resolver.notifyChange(
+                    DocumentsContract.buildChildDocumentsUri(authority, "$PREFIX_CATEGORY${category.id}"),
+                    null
+                )
+            }
         }
     }
 
@@ -82,18 +93,15 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
         val ctx = context ?: return MatrixCursor(projection ?: DEFAULT_ROOT_PROJECTION)
         val result = MatrixCursor(projection ?: DEFAULT_ROOT_PROJECTION)
 
-        result.newRow().apply {
-            add(Root.COLUMN_ROOT_ID, ROOT_ID)
-            add(Root.COLUMN_MIME_TYPES, "image/*\nimage/png\nimage/jpeg")
-            add(
-                Root.COLUMN_FLAGS,
-                Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_SEARCH or Root.FLAG_SUPPORTS_RECENTS
-            )
-            add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
-            add(Root.COLUMN_TITLE, ctx.getString(R.string.app_name))
-            add(Root.COLUMN_SUMMARY, ctx.getString(R.string.documents_root_summary))
-            add(Root.COLUMN_DOCUMENT_ID, DOC_ROOT)
-        }
+        addProjectedRow(result, listOf(
+            Root.COLUMN_ROOT_ID to ROOT_ID,
+            Root.COLUMN_MIME_TYPES to "image/*\nimage/png\nimage/jpeg",
+            Root.COLUMN_FLAGS to (Root.FLAG_LOCAL_ONLY or Root.FLAG_SUPPORTS_SEARCH or Root.FLAG_SUPPORTS_RECENTS),
+            Root.COLUMN_ICON to R.mipmap.ic_launcher,
+            Root.COLUMN_TITLE to ctx.getString(R.string.app_name),
+            Root.COLUMN_SUMMARY to ctx.getString(R.string.documents_root_summary),
+            Root.COLUMN_DOCUMENT_ID to DOC_ROOT
+        ))
         result.setNotificationUri(ctx.contentResolver, DocumentsContract.buildRootsUri(AUTHORITY))
         return result
     }
@@ -412,27 +420,27 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
         displayName: String,
         summary: String?
     ) {
-        cursor.newRow().apply {
-            add(Document.COLUMN_DOCUMENT_ID, docId)
-            add(Document.COLUMN_MIME_TYPE, Document.MIME_TYPE_DIR)
-            add(Document.COLUMN_DISPLAY_NAME, displayName)
-            add(Document.COLUMN_LAST_MODIFIED, null)
-            add(Document.COLUMN_FLAGS, 0)
-            add(Document.COLUMN_SIZE, null)
-            add(Document.COLUMN_SUMMARY, summary)
-        }
+        addProjectedRow(cursor, listOf(
+            Document.COLUMN_DOCUMENT_ID to docId,
+            Document.COLUMN_MIME_TYPE to Document.MIME_TYPE_DIR,
+            Document.COLUMN_DISPLAY_NAME to displayName,
+            Document.COLUMN_LAST_MODIFIED to null,
+            Document.COLUMN_FLAGS to 0,
+            Document.COLUMN_SIZE to null,
+            Document.COLUMN_SUMMARY to summary
+        ))
     }
 
     private fun includeCategoryFolder(cursor: MatrixCursor, category: Category) {
-        cursor.newRow().apply {
-            add(Document.COLUMN_DOCUMENT_ID, "$PREFIX_CATEGORY${category.id}")
-            add(Document.COLUMN_MIME_TYPE, Document.MIME_TYPE_DIR)
-            add(Document.COLUMN_DISPLAY_NAME, category.name)
-            add(Document.COLUMN_LAST_MODIFIED, null)
-            add(Document.COLUMN_FLAGS, 0)
-            add(Document.COLUMN_SIZE, null)
-            add(Document.COLUMN_SUMMARY, null)
-        }
+        addProjectedRow(cursor, listOf(
+            Document.COLUMN_DOCUMENT_ID to "$PREFIX_CATEGORY${category.id}",
+            Document.COLUMN_MIME_TYPE to Document.MIME_TYPE_DIR,
+            Document.COLUMN_DISPLAY_NAME to category.name,
+            Document.COLUMN_LAST_MODIFIED to null,
+            Document.COLUMN_FLAGS to 0,
+            Document.COLUMN_SIZE to null,
+            Document.COLUMN_SUMMARY to null
+        ))
     }
 
     private fun includePageDocument(cursor: MatrixCursor, page: Page) {
@@ -456,14 +464,27 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
         val size = if (file.exists()) file.length() else 0L
         val summary = if (page.tags.isNotEmpty()) page.tags.joinToString(", ") else null
 
-        cursor.newRow().apply {
-            add(Document.COLUMN_DOCUMENT_ID, "$PREFIX_PAGE${page.id}")
-            add(Document.COLUMN_MIME_TYPE, mimeType)
-            add(Document.COLUMN_DISPLAY_NAME, displayName)
-            add(Document.COLUMN_LAST_MODIFIED, lastModified)
-            add(Document.COLUMN_FLAGS, Document.FLAG_SUPPORTS_THUMBNAIL)
-            add(Document.COLUMN_SIZE, size)
-            add(Document.COLUMN_SUMMARY, summary)
+        addProjectedRow(cursor, listOf(
+            Document.COLUMN_DOCUMENT_ID to "$PREFIX_PAGE${page.id}",
+            Document.COLUMN_MIME_TYPE to mimeType,
+            Document.COLUMN_DISPLAY_NAME to displayName,
+            Document.COLUMN_LAST_MODIFIED to lastModified,
+            Document.COLUMN_FLAGS to Document.FLAG_SUPPORTS_THUMBNAIL,
+            Document.COLUMN_SIZE to size,
+            Document.COLUMN_SUMMARY to summary
+        ))
+    }
+
+    /**
+     * SAF clients may request any subset of columns. MatrixCursor.RowBuilder.add(name, value)
+     * throws when a requested projection omits a default column, so only populate
+     * columns that the caller actually requested.
+     */
+    private fun addProjectedRow(cursor: MatrixCursor, values: List<Pair<String, Any?>>) {
+        val row = cursor.newRow()
+        values.forEach { (column, value) ->
+            val index = cursor.getColumnIndex(column)
+            if (index >= 0) row.add(index, value)
         }
     }
 
