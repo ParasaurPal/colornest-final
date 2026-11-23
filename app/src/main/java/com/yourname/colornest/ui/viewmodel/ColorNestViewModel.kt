@@ -34,7 +34,8 @@ data class UiState(
     val isSeeding: Boolean = false,
     val wipeStep: Int = 0,
     val deleteCloud: Boolean = false,
-    val confirmDeleteText: String = ""
+    val confirmDeleteText: String = "",
+    val wipeError: String? = null
 )
 
 class ColorNestViewModel(application: Application) : AndroidViewModel(application) {
@@ -56,6 +57,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     private val _wipeStep = MutableStateFlow(0)
     private val _deleteCloud = MutableStateFlow(false)
     private val _confirmDeleteText = MutableStateFlow("")
+    private val _wipeError = MutableStateFlow<String?>(null)
 
     val pagesFlow = repository.getAllPagesFlow()
     val categoriesFlow = repository.getAllCategoriesFlow()
@@ -92,7 +94,8 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _isSeeding,
         _wipeStep,
         _deleteCloud,
-        _confirmDeleteText
+        _confirmDeleteText,
+        _wipeError
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val pages = args[0] as List<Page>
@@ -114,6 +117,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         val wipeSt = args[15] as Int
         val delCloud = args[16] as Boolean
         val confText = args[17] as String
+        val wipeError = args[18] as String?
 
         val availableTags = pages
             .asSequence()
@@ -150,7 +154,8 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             isSeeding = seeding,
             wipeStep = wipeSt,
             deleteCloud = delCloud,
-            confirmDeleteText = confText
+            confirmDeleteText = confText,
+            wipeError = wipeError
         )
     }.stateIn(
         viewModelScope,
@@ -259,14 +264,25 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun setWipeStep(step: Int) { _wipeStep.value = step }
+    fun setWipeStep(step: Int) {
+        _wipeStep.value = step
+        if (step == 0) _wipeError.value = null
+    }
     fun setDeleteCloud(checked: Boolean) { _deleteCloud.value = checked }
     fun setConfirmDeleteText(text: String) { _confirmDeleteText.value = text }
 
     fun wipeApp() {
         if (_confirmDeleteText.value != "DELETE") return
         viewModelScope.launch {
+            if (_deleteCloud.value) {
+                val cloudDeleted = repository.trashCloudFolder()
+                if (!cloudDeleted) {
+                    _wipeError.value = "Google Drive could not be cleared. Your local library was left untouched. Check your connection and Drive access, then try again."
+                    return@launch
+                }
+            }
             repository.wipeAllData()
+            _wipeError.value = null
             _selectedTag.value = null
             _wipeStep.value = 0
             _confirmDeleteText.value = ""
