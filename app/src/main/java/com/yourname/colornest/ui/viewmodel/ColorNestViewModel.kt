@@ -19,6 +19,8 @@ data class UiState(
     val filteredPages: List<Page> = emptyList(),
     val categories: List<Category> = emptyList(),
     val activeCategoryId: Long? = null,
+    val availableTags: List<String> = emptyList(),
+    val selectedTag: String? = null,
     val searchQuery: String = "",
     val isDarkMode: Boolean = false,
     val showTutorial: Boolean = false,
@@ -39,6 +41,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     val repository = ColorNestRepository(application)
 
     private val _activeCategoryId = MutableStateFlow<Long?>(null)
+    private val _selectedTag = MutableStateFlow<String?>(null)
     private val _searchQuery = MutableStateFlow("")
     private val _isDarkMode = MutableStateFlow(false)
     private val _showTutorial = MutableStateFlow(false)
@@ -75,6 +78,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         pagesFlow,
         categoriesFlow,
         _activeCategoryId,
+        _selectedTag,
         _searchQuery,
         _isDarkMode,
         _showTutorial,
@@ -95,28 +99,44 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         @Suppress("UNCHECKED_CAST")
         val categories = args[1] as List<Category>
         val activeCatId = args[2] as Long?
-        val query = args[3] as String
-        val isDark = args[4] as Boolean
-        val showTut = args[5] as Boolean
-        val addModal = args[6] as Boolean
-        val menuOpen = args[7] as Boolean
-        val settingsOpen = args[8] as Boolean
-        val catPage = args[9] as Page?
-        val procAdd = args[10] as Boolean
-        val progText = args[11] as String
-        val progPct = args[12] as Int
-        val seeding = args[13] as Boolean
-        val wipeSt = args[14] as Int
-        val delCloud = args[15] as Boolean
-        val confText = args[16] as String
+        val rawSelectedTag = args[3] as String?
+        val query = args[4] as String
+        val isDark = args[5] as Boolean
+        val showTut = args[6] as Boolean
+        val addModal = args[7] as Boolean
+        val menuOpen = args[8] as Boolean
+        val settingsOpen = args[9] as Boolean
+        val catPage = args[10] as Page?
+        val procAdd = args[11] as Boolean
+        val progText = args[12] as String
+        val progPct = args[13] as Int
+        val seeding = args[14] as Boolean
+        val wipeSt = args[15] as Int
+        val delCloud = args[16] as Boolean
+        val confText = args[17] as String
 
-        val filtered = filterPages(pages, categories, activeCatId, query)
+        val availableTags = pages
+            .asSequence()
+            .flatMap { it.tags.asSequence() }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase() }
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+            .toList()
+
+        val effectiveSelectedTag = rawSelectedTag?.let { sel ->
+            availableTags.firstOrNull { it.equals(sel, ignoreCase = true) }
+        }
+
+        val filtered = filterPages(pages, categories, activeCatId, effectiveSelectedTag, query)
 
         UiState(
             pages = pages,
             filteredPages = filtered,
             categories = categories,
             activeCategoryId = activeCatId,
+            availableTags = availableTags,
+            selectedTag = effectiveSelectedTag,
             searchQuery = query,
             isDarkMode = isDark,
             showTutorial = showTut,
@@ -151,6 +171,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         pages: List<Page>,
         categories: List<Category>,
         activeCatId: Long?,
+        selectedTag: String?,
         query: String
     ): List<Page> {
         return pages.filter { page ->
@@ -159,6 +180,10 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             } else if (activeCatId != null) {
                 val validIds = getCategoryAndChildren(activeCatId, categories)
                 if (page.categoryId !in validIds) return@filter false
+            }
+            if (selectedTag != null) {
+                val matchesTag = page.tags.any { it.trim().equals(selectedTag, ignoreCase = true) }
+                if (!matchesTag) return@filter false
             }
             if (query.isNotBlank()) {
                 val q = query.lowercase()
@@ -172,6 +197,14 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setSearchQuery(q: String) { _searchQuery.value = q }
     fun setActiveCategory(id: Long?) { _activeCategoryId.value = id }
+    fun selectTag(tag: String?) {
+        if (tag == null) {
+            _selectedTag.value = null
+        } else {
+            val current = _selectedTag.value
+            _selectedTag.value = if (current != null && current.equals(tag, ignoreCase = true)) null else tag
+        }
+    }
     fun setMenuOpen(open: Boolean) { _isMenuOpen.value = open }
     fun setAddModalOpen(open: Boolean) { _isAddModalOpen.value = open }
     fun setSettingsOpen(open: Boolean) { _isSettingsOpen.value = open }
@@ -234,6 +267,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         if (_confirmDeleteText.value != "DELETE") return
         viewModelScope.launch {
             repository.wipeAllData()
+            _selectedTag.value = null
             _wipeStep.value = 0
             _confirmDeleteText.value = ""
             _deleteCloud.value = false

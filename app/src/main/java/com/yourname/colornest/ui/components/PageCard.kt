@@ -91,6 +91,8 @@ fun PageCard(
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
     onEditDetails: () -> Unit,
+    selectedTag: String? = null,
+    onTagClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -252,18 +254,22 @@ fun PageCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     page.tags.forEach { tag ->
+                        val isSelectedTag = selectedTag != null && tag.trim().equals(selectedTag, ignoreCase = true)
                         Box(
                             modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
                                 .background(
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    RoundedCornerShape(4.dp)
+                                    if (isSelectedTag) PurplePrimary.copy(alpha = if (isDarkMode) 0.3f else 0.14f)
+                                    else MaterialTheme.colorScheme.surfaceVariant
                                 )
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .clickable { onTagClick(tag) }
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = tag,
-                                fontSize = 9.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelectedTag) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelectedTag) PurplePrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }

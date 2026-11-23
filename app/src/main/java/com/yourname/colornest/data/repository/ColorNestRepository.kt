@@ -13,6 +13,7 @@ import com.yourname.colornest.data.PrepopulateCategories
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.data.model.Setting
+import com.yourname.colornest.provider.ColorNestDocumentsProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -25,7 +26,6 @@ class ColorNestRepository(private val context: Context) {
     private val db = ColorNestDatabase.getDatabase(context)
     val pageDao = db.pageDao()
     val categoryDao = db.categoryDao()
-    val learnedPatternDao = db.learnedPatternDao()
     val settingDao = db.settingDao()
 
     private val imagesDir: File by lazy {
@@ -47,16 +47,20 @@ class ColorNestRepository(private val context: Context) {
     }
 
     suspend fun insertCategory(name: String, parentId: Long?): Long = withContext(Dispatchers.IO) {
-        categoryDao.insertCategory(Category(name = name, parentId = parentId))
+        val id = categoryDao.insertCategory(Category(name = name, parentId = parentId))
+        ColorNestDocumentsProvider.notifyChanged(context)
+        id
     }
 
     suspend fun seedMassiveCategories() = withContext(Dispatchers.IO) {
         PrepopulateCategories.seedMassiveCategories(categoryDao)
+        ColorNestDocumentsProvider.notifyChanged(context)
     }
 
     suspend fun toggleFavorite(pageId: Long) = withContext(Dispatchers.IO) {
         val page = pageDao.getPageById(pageId) ?: return@withContext
         pageDao.updatePage(page.copy(isFavorite = !page.isFavorite))
+        ColorNestDocumentsProvider.notifyChanged(context)
     }
 
     suspend fun deletePage(page: Page) = withContext(Dispatchers.IO) {
@@ -65,6 +69,7 @@ class ColorNestRepository(private val context: Context) {
             file.delete()
         }
         pageDao.deletePage(page)
+        ColorNestDocumentsProvider.notifyChanged(context)
     }
 
     suspend fun updatePageDetails(
@@ -78,18 +83,16 @@ class ColorNestRepository(private val context: Context) {
             title = newTitle,
             categoryId = newCategoryId,
             isUncategorized = newCategoryId == null,
-            isProcessingAi = false,
-            aiStatus = null,
             tags = tags
         )
         pageDao.updatePage(updated)
+        ColorNestDocumentsProvider.notifyChanged(context)
     }
 
     suspend fun wipeAllData() = withContext(Dispatchers.IO) {
         imagesDir.listFiles()?.forEach { it.delete() }
         pageDao.deleteAllPages()
         categoryDao.deleteAllCategories()
-        learnedPatternDao.deleteAllPatterns()
         settingDao.deleteAllSettings()
 
         // Re-seed default 5 categories
@@ -101,6 +104,7 @@ class ColorNestRepository(private val context: Context) {
             Category(name = "Architecture", parentId = null)
         )
         categoryDao.insertCategories(defaults)
+        ColorNestDocumentsProvider.notifyChanged(context)
     }
 
     // Convert white paper to transparency while preserving anti-aliased linework.
@@ -192,11 +196,10 @@ class ColorNestRepository(private val context: Context) {
                         Page(
                             title = "",
                             imageUrl = savedPath,
-                            isUncategorized = true,
-                            isProcessingAi = false,
-                            aiStatus = null
+                            isUncategorized = true
                         )
                     )
+                    ColorNestDocumentsProvider.notifyChanged(context)
                 }
             } finally {
                 inputStream?.close()
@@ -240,9 +243,7 @@ class ColorNestRepository(private val context: Context) {
                 val pageEntity = Page(
                     title = "",
                     imageUrl = savedPath,
-                    isUncategorized = true,
-                    isProcessingAi = false,
-                    aiStatus = null
+                    isUncategorized = true
                 )
                 kotlinx.coroutines.runBlocking {
                     pageDao.insertPage(pageEntity)
@@ -251,6 +252,7 @@ class ColorNestRepository(private val context: Context) {
 
             pdfRenderer.close()
             fileDescriptor.close()
+            ColorNestDocumentsProvider.notifyChanged(context)
         } finally {
             tempPdfFile.delete()
         }

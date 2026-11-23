@@ -13,13 +13,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Nightlight
@@ -27,6 +30,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +41,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -221,52 +227,152 @@ fun HomeScreen(
             },
             modifier = modifier.testTag("home_screen")
         ) { innerPadding ->
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                if (uiState.filteredPages.isEmpty()) {
-                    Column(
+                // Unique Tags Filter Bar at the top of the gallery
+                if (uiState.availableTags.isNotEmpty()) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                            .testTag("tag_filter_bar")
                     ) {
-                        Text(
-                            text = if (uiState.searchQuery.isNotBlank()) "No coloring pages found" else "No pages yet",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (uiState.searchQuery.isNotBlank()) "Try searching for a different title or tag" else "Tap the + button below to add your first coloring page or PDF!",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .testTag("pages_grid")
-                    ) {
-                        items(uiState.filteredPages, key = { it.id }) { page ->
-                            PageCard(
-                                page = page,
-                                isDarkMode = uiState.isDarkMode,
-                                onToggleFavorite = { viewModel.toggleFavorite(page.id) },
-                                onDelete = { viewModel.deletePage(page) },
-                                onEditDetails = { viewModel.setCategorizingPage(page) }
+                        item(key = "__all_tags__") {
+                            val isAllSelected = uiState.selectedTag == null
+                            FilterChip(
+                                selected = isAllSelected,
+                                onClick = { viewModel.selectTag(null) },
+                                label = {
+                                    Text(
+                                        text = "All Tags",
+                                        fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 12.sp
+                                    )
+                                },
+                                leadingIcon = if (isAllSelected) {
+                                    {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                } else null,
+                                shape = RoundedCornerShape(20.dp),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = PurplePrimary,
+                                    selectedLabelColor = Color.White,
+                                    selectedLeadingIconColor = Color.White
+                                ),
+                                modifier = Modifier.testTag("tag_filter_all")
                             )
+                        }
+
+                        items(uiState.availableTags, key = { it.lowercase() }) { tag ->
+                            val isSelected = uiState.selectedTag != null &&
+                                uiState.selectedTag.equals(tag, ignoreCase = true)
+                            val safeTagId = tag.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.selectTag(tag) },
+                                label = {
+                                    Text(
+                                        text = tag,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 12.sp
+                                    )
+                                },
+                                leadingIcon = if (isSelected) {
+                                    {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                } else null,
+                                shape = RoundedCornerShape(20.dp),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = PurplePrimary,
+                                    selectedLabelColor = Color.White,
+                                    selectedLeadingIconColor = Color.White
+                                ),
+                                modifier = Modifier.testTag("tag_filter_$safeTagId")
+                            )
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    if (uiState.filteredPages.isEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            val hasFilter = uiState.searchQuery.isNotBlank() || uiState.selectedTag != null
+                            Text(
+                                text = if (hasFilter) "No coloring pages found" else "No pages yet",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = when {
+                                    uiState.selectedTag != null && uiState.searchQuery.isNotBlank() ->
+                                        "No pages match \"${uiState.searchQuery}\" with tag \"${uiState.selectedTag}\"."
+                                    uiState.selectedTag != null ->
+                                        "No pages in this view have the tag \"${uiState.selectedTag}\"."
+                                    uiState.searchQuery.isNotBlank() ->
+                                        "Try searching for a different title or tag"
+                                    else ->
+                                        "Tap the + button below to add your first coloring page or PDF!"
+                                },
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            if (uiState.selectedTag != null) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                TextButton(
+                                    onClick = { viewModel.selectTag(null) },
+                                    modifier = Modifier.testTag("clear_tag_filter_button")
+                                ) {
+                                    Text("Clear Tag Filter", color = PurplePrimary, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("pages_grid")
+                        ) {
+                            items(uiState.filteredPages, key = { it.id }) { page ->
+                                PageCard(
+                                    page = page,
+                                    isDarkMode = uiState.isDarkMode,
+                                    onToggleFavorite = { viewModel.toggleFavorite(page.id) },
+                                    onDelete = { viewModel.deletePage(page) },
+                                    onEditDetails = { viewModel.setCategorizingPage(page) },
+                                    selectedTag = uiState.selectedTag,
+                                    onTagClick = { tag -> viewModel.selectTag(tag) }
+                                )
+                            }
                         }
                     }
                 }

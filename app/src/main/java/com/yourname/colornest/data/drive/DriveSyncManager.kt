@@ -1,10 +1,10 @@
 package com.yourname.colornest.data.drive
 
 import android.content.Context
-import com.google.api.client.extensions.android.http.AndroidHttp
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.api.client.http.FileContent
+import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
@@ -131,7 +131,7 @@ class DriveSyncManager(
         val credential = GoogleAccountCredential.usingOAuth2(context, SCOPES)
             .setSelectedAccountName(accountName)
         Drive.Builder(
-            AndroidHttp.newCompatibleTransport(),
+            NetHttpTransport(),
             GsonFactory.getDefaultInstance(),
             credential
         )

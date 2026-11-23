@@ -137,8 +137,8 @@ fun SettingsDialog(
                             Text("Use the search box to find page titles or tags. Tap the edit icon on any page card to set its title, category, and comma-separated tags. Use the heart button to mark Favorites.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("5. Appearance and viewing", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("Use the sun/moon control on the home screen to switch between light and dark themes. Dark mode displays coloring line art with an inverted appearance for comfortable viewing.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("6. Open or share to Clip Studio Paint", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Tap Open to launch an image as a new document instead of inserting a layer. Tap Share for direct options including Clip Studio Paint (New Image), Open as New Image, Edit in Drawing App, Save to Pictures/ColorNest (for Create from image), or the System Share Sheet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("6. Open from or send to other apps", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Tap Open or Share inside ColorNest to send a page to Clip Studio Paint or another drawing app as a new image. When opening or importing files inside any other app, choose ColorNest in the Android Files sidebar or image picker to browse your categories, favorites, and pages directly.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("7. Data safety", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("Keep separate backups of images you cannot replace. Erase All Images & Data permanently removes the app's local collection and settings after confirmation.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }

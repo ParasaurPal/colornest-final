@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.yourname.colornest"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.aistudio.colornest.app"
@@ -52,6 +53,7 @@ android {
             // (plus license/notice files); the APK packager rejects
             // duplicate paths, so drop these metadata files.
             excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/INDEX.LIST"
             excludes += "META-INF/LICENSE"
             excludes += "META-INF/LICENSE.txt"
             excludes += "META-INF/NOTICE"

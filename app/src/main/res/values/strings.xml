@@ -22,4 +22,16 @@
     <string name="danger_zone">Danger Zone</string>
     <string name="erase_all_data">Erase All Images &amp; Data</string>
     <string name="file_provider_authority">com.yourname.colornest.fileprovider</string>
+    <string name="documents_root_summary">Coloring pages</string>
+    <string name="favorites_title">Favorites</string>
+    <string name="untagged_title">Untagged</string>
+    <string name="all_tags">All Tags</string>
+    <string name="choose_coloring_page">Choose Coloring Page</string>
+    <string name="picker_subtitle_single">Tap a page to open it in the requesting app</string>
+    <string name="picker_subtitle_multiple">Select one or more pages to open</string>
+    <string name="picker_file_missing">Image file not found on device</string>
+    <string name="picker_empty_title">No matching pages</string>
+    <string name="picker_empty_subtitle">Try clearing filters or adding pages inside ColorNest first.</string>
+    <string name="clear_selection">Clear</string>
+    <string name="open_selected_count">Open Selected (%1$d)</string>
 </resources>
