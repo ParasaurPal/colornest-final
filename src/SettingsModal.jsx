@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './db';
-import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2, Copy } from 'lucide-react';
+import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2, Copy, Sparkles } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
 import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
@@ -49,11 +49,79 @@ export default function SettingsModal({ onClose }) {
   const [imageProcessStatus, setImageProcessStatus] = useState('');
   const [unprocessedImageCount, setUnprocessedImageCount] = useState(0);
 
+  // Optional Gemini image + filename tagging.
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [aiAutoTagUploads, setAiAutoTagUploads] = useState(false);
+  const [aiTagging, setAiTagging] = useState(false);
+  const [aiTagProgress, setAiTagProgress] = useState({ done: 0, total: 0 });
+  const [aiTagStatus, setAiTagStatus] = useState('');
+
   const refreshDriveState = async () => {
     setDriveConnected(isDriveConnected());
     setDriveAccount(getDriveAccountEmail());
     setDriveLastSync(await getLastSyncMillis());
     setDriveScanOnOpen(await isScanOnOpenEnabled());
+  };
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const [keySetting, autoSetting] = await Promise.all([
+        db.settings.get('geminiApiKey'),
+        db.settings.get('aiAutoTagUploads'),
+      ]);
+      if (!active) return;
+      setGeminiApiKey(keySetting?.value || '');
+      setAiAutoTagUploads(autoSetting?.value === true);
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const saveGeminiSettings = async () => {
+    const key = geminiApiKey.trim();
+    if (key) await db.settings.put({ key: 'geminiApiKey', value: key });
+    else await db.settings.delete('geminiApiKey');
+    await db.settings.put({ key: 'aiAutoTagUploads', value: aiAutoTagUploads });
+    setAiTagStatus(key ? 'Gemini settings saved on this device.' : 'Gemini API key removed.');
+  };
+
+  const toggleAiAutoTag = async (enabled) => {
+    setAiAutoTagUploads(enabled);
+    await db.settings.put({ key: 'aiAutoTagUploads', value: enabled });
+  };
+
+  const handleAiTagLibrary = async () => {
+    if (aiTagging) return;
+    const key = geminiApiKey.trim();
+    if (!key) {
+      setAiTagStatus('Add and save your Gemini API key first.');
+      return;
+    }
+    const pending = (await db.pages.toArray()).filter(page => page.imageUrl && !page.aiScannedAt);
+    if (!pending.length) {
+      setAiTagStatus('All locally stored images have already been AI-scanned.');
+      return;
+    }
+    setAiTagging(true);
+    setAiTagProgress({ done: 0, total: pending.length });
+    setAiTagStatus('Scanning your library…');
+    let tagged = 0;
+    let failed = 0;
+    for (let index = 0; index < pending.length; index++) {
+      const page = pending[index];
+      setAiTagStatus(`Scanning ${index + 1} of ${pending.length}: ${page.title || 'Untitled'}`);
+      try {
+        const { scanAndTagPage } = await import('./aiTagging');
+        await scanAndTagPage(page, key);
+        tagged++;
+      } catch (error) {
+        failed++;
+        console.warn('AI tagging failed for page:', page.id, error);
+      }
+      setAiTagProgress({ done: index + 1, total: pending.length });
+    }
+    setAiTagStatus(`Finished: ${tagged} tagged, ${failed} failed.${failed ? ' You can retry failed pages after checking your connection and API key.' : ''}`);
+    setAiTagging(false);
   };
 
   // Load the Drive state when the modal opens. The reads are async (Dexie),
@@ -412,6 +480,44 @@ export default function SettingsModal({ onClose }) {
                 Connect Google Drive
               </button>
             )}
+          </div>
+
+          <div className="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
+            <h3 className="font-bold text-purple-800 dark:text-purple-300 flex items-center gap-2 mb-2">
+              <Sparkles size={18} /> AI subject tagging
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+              Gemini can inspect each coloring-page image and its filename, then add useful subject tags such as animals, flowers, vehicles, or fantasy. Existing tags are kept. Images are sent to Google for analysis only when you run a scan or enable automatic tagging.
+            </p>
+            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Google Gemini API key</label>
+            <input
+              type="password"
+              autoComplete="off"
+              value={geminiApiKey}
+              onChange={e => setGeminiApiKey(e.target.value)}
+              placeholder="Paste your Gemini API key"
+              className="w-full p-2 border rounded-lg mb-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+              Get a key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-purple-600 dark:text-purple-300 underline">Google AI Studio</a>. The key is stored in this browser's local database and is not uploaded to your Drive backup. Anyone with access to this browser profile may be able to access it.
+            </p>
+            <button onClick={saveGeminiSettings} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mb-3">
+              Save Gemini settings
+            </button>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={aiAutoTagUploads} onChange={e => toggleAiAutoTag(e.target.checked)} className="w-5 h-5 accent-purple-600" />
+              <span className="text-sm font-bold text-gray-800 dark:text-white">Automatically tag new uploads</span>
+            </label>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 mb-3">When enabled, each imported image or PDF page is analyzed after it is saved. Leave this off to scan manually.</p>
+            <button onClick={handleAiTagLibrary} disabled={aiTagging || !geminiApiKey.trim()} className="w-full bg-purple-700 text-white py-2 rounded-lg font-bold disabled:opacity-50">
+              {aiTagging ? `Scanning ${aiTagProgress.done} of ${aiTagProgress.total}…` : 'Scan existing library for tags'}
+            </button>
+            {aiTagging && (
+              <div className="mt-2 h-2 rounded-full bg-purple-100 dark:bg-gray-700 overflow-hidden">
+                <div className="h-full bg-purple-600 transition-all" style={{ width: `${Math.round((aiTagProgress.done / Math.max(aiTagProgress.total, 1)) * 100)}%` }} />
+              </div>
+            )}
+            {aiTagStatus && <p className="text-xs text-gray-600 dark:text-gray-300 mt-2" role="status" aria-live="polite">{aiTagStatus}</p>}
           </div>
 
           <div className="border border-red-200 dark:border-red-900 rounded-xl p-4">
