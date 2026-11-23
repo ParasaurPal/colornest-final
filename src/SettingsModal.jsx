@@ -263,17 +263,17 @@ export default function SettingsModal({ onClose }) {
         setImageProcessStatus('All existing pages have already been processed.');
         return;
       }
-      if (!window.confirm(`Remove white backgrounds from ${pendingPages.length} existing pages? This updates their stored images but keeps all page details and organization.`)) return;
+      if (!window.confirm(`Convert ${pendingPages.length} existing pages to black-only line art with transparent backgrounds? Colored pixels and backgrounds will be removed. This replaces the stored images but keeps page details, tags, and organization.`)) return;
 
       setImageProcessing(true);
       setImageProgress({ done: 0, total: pendingPages.length });
-      setImageProcessStatus('Preparing your library…');
+      setImageProcessStatus('Preparing your library for black-ink conversion…');
       let processed = 0;
       let failed = 0;
 
       for (let index = 0; index < pendingPages.length; index++) {
         const page = pendingPages[index];
-        setImageProcessStatus(`Processing ${index + 1} of ${pendingPages.length}: ${page.title || 'Untitled page'}`);
+        setImageProcessStatus(`Converting to black ink ${index + 1} of ${pendingPages.length}: ${page.title || 'Untitled page'}`);
         try {
           const transparentImage = await removeWhiteBackground(page.imageUrl);
           const thumbnailUrl = await tryCreateThumbnail(transparentImage);
