@@ -15,6 +15,7 @@ import com.yourname.colornest.data.dao.SettingDao
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.data.model.Setting
+import com.yourname.colornest.provider.ColorNestDocumentsProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -268,6 +269,8 @@ class DriveSyncManager(
         settingDao.setSetting(
             Setting(key = KEY_LAST_SYNC, value = System.currentTimeMillis().toString())
         )
+        // External SAF pickers must refresh when sync imports/removes pages.
+        ColorNestDocumentsProvider.notifyChanged(context)
         SyncResult(
             uploaded = uploaded,
             downloaded = downloaded,
