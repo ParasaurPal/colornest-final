@@ -299,10 +299,10 @@ function App() {
       </main>
 
       {viewingPage && (
-        <div className="fixed inset-0 z-[250] bg-black/95 flex flex-col" role="dialog" aria-modal="true" aria-label={viewingPage.title}>
-          <div className="flex items-center justify-between gap-3 p-3 text-white">
+        <div className="fixed inset-0 z-[250] bg-white flex flex-col" role="dialog" aria-modal="true" aria-label={viewingPage.title}>
+          <div className="flex items-center justify-between gap-3 p-3 text-gray-800">
             <h2 className="font-semibold text-sm truncate">{viewingPage.title || 'Coloring page'}</h2>
-            <button onClick={() => setViewingPage(null)} className="p-2 rounded-full bg-white/15" aria-label="Close page"><X size={22} /></button>
+            <button onClick={() => setViewingPage(null)} className="p-2 rounded-full bg-gray-100" aria-label="Close page"><X size={22} /></button>
           </div>
           <div className="flex-1 min-h-0 flex items-center justify-center overflow-auto p-2">
             <img
@@ -312,6 +312,7 @@ function App() {
               onError={(event) => { event.currentTarget.alt = 'This image could not be loaded.'; event.currentTarget.style.display = 'none'; }}
             />
           </div>
+          <p className="px-3 pb-3 pt-1 text-center text-[11px] text-gray-500">The white background is only for viewing — it won’t be in the actual file.</p>
         </div>
       )}
 
