@@ -31,6 +31,8 @@ function App() {
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
   const savedTags = useLiveQuery(() => db.tags.toArray());
+  const galleryFullImagesSetting = useLiveQuery(() => db.settings.get('galleryFullImages'));
+  const galleryFullImages = galleryFullImagesSetting?.value === true;
 
   useEffect(() => {
     if (localStorage.getItem('theme') === 'dark') {
@@ -277,7 +279,7 @@ function App() {
         {sortedPages.map(page => (
           <article key={page.id} className="bg-white dark:bg-gray-800 rounded-[24px] p-2 pb-3 shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col relative">
             <div className="relative h-40 bg-gray-50 dark:bg-gray-900 rounded-[18px] overflow-hidden">
-              <img src={page.thumbnailUrl || page.imageUrl} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
+              <img src={galleryFullImages ? (page.imageUrl || page.thumbnailUrl) : (page.thumbnailUrl || page.imageUrl)} alt={page.title} loading="lazy" className="coloring-image w-full h-full object-cover" />
               <button onClick={async () => { await db.pages.update(page.id, { isFavorite: page.isFavorite ? 0 : 1, updatedAt: Date.now() }); }} className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm" aria-label="Toggle favorite">
                 <Heart size={13} fill={page.isFavorite === 1 ? '#ec4899' : 'none'} color={page.isFavorite === 1 ? '#ec4899' : '#9ca3af'} />
               </button>

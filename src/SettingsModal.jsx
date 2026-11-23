@@ -16,6 +16,7 @@ const needsWhiteBackgroundReprocessing = (page) =>
 
 export default function SettingsModal({ onClose }) {
   const [isSeeding, setIsSeeding] = useState(false);
+  const [galleryFullImages, setGalleryFullImages] = useState(false);
 
   // Wipe App State
   const [wipeStep, setWipeStep] = useState(0);
@@ -50,6 +51,14 @@ export default function SettingsModal({ onClose }) {
       setDriveConnected(connected);
       setDriveAccount(account);
     })();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    db.settings.get('galleryFullImages').then(setting => {
+      if (active) setGalleryFullImages(setting?.value === true);
+    });
     return () => { active = false; };
   }, []);
 
@@ -221,6 +230,11 @@ export default function SettingsModal({ onClose }) {
     }
   };
 
+  const handleGalleryFullImagesToggle = async (enabled) => {
+    setGalleryFullImages(enabled);
+    await db.settings.put({ key: 'galleryFullImages', value: enabled });
+  };
+
   const handleWipeApp = async () => {
     if (confirmText !== "DELETE") return;
 
@@ -263,6 +277,15 @@ export default function SettingsModal({ onClose }) {
             <button onClick={handleSeedCategories} disabled={isSeeding} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold flex items-center justify-center gap-2">
               {isSeeding ? "Building Tree..." : "Load Default Categories"}
             </button>
+          </div>
+
+          <div className="p-4 bg-purple-50 dark:bg-purple-900/30 rounded-xl">
+            <h3 className="font-bold text-purple-800 dark:text-purple-300 mb-2">Gallery</h3>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={galleryFullImages} onChange={(e) => handleGalleryFullImagesToggle(e.target.checked)} className="w-5 h-5 accent-purple-600" />
+              <span className="text-sm font-bold text-gray-800 dark:text-white">Show full images in the gallery</span>
+            </label>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Shows the high-quality full image on every gallery card instead of a small preview thumbnail. Uses significantly more memory.</p>
           </div>
 
           <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
