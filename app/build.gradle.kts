@@ -21,6 +21,24 @@ android {
     }
 
 
+    val ciKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+    val ciKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    val ciKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+    val ciKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+    if (!ciKeystorePath.isNullOrBlank() &&
+        !ciKeystorePassword.isNullOrBlank() &&
+        !ciKeyAlias.isNullOrBlank() &&
+        !ciKeyPassword.isNullOrBlank()
+    ) {
+        signingConfigs.create("ci") {
+            storeFile = file(ciKeystorePath)
+            storePassword = ciKeystorePassword
+            keyAlias = ciKeyAlias
+            keyPassword = ciKeyPassword
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -30,6 +48,13 @@ android {
             )
         }
         debug {
+            if (!ciKeystorePath.isNullOrBlank() &&
+                !ciKeystorePassword.isNullOrBlank() &&
+                !ciKeyAlias.isNullOrBlank() &&
+                !ciKeyPassword.isNullOrBlank()
+            ) {
+                signingConfig = signingConfigs.getByName("ci")
+            }
         }
     }
 
