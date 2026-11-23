@@ -13,6 +13,7 @@ import com.yourname.colornest.data.PrepopulateCategories
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.data.model.Setting
+import com.yourname.colornest.data.drive.DriveSyncManager
 import com.yourname.colornest.provider.ColorNestDocumentsProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,9 @@ class ColorNestRepository(private val context: Context) {
     val pageDao = db.pageDao()
     val categoryDao = db.categoryDao()
     val settingDao = db.settingDao()
+    val driveSyncManager by lazy {
+        DriveSyncManager(context, pageDao, categoryDao, settingDao)
+    }
 
     private val imagesDir: File by lazy {
         val dir = File(context.filesDir, "colornest")
@@ -64,6 +68,8 @@ class ColorNestRepository(private val context: Context) {
     }
 
     suspend fun deletePage(page: Page) = withContext(Dispatchers.IO) {
+        // Record the deletion with Drive before removing the local row.
+        driveSyncManager.trashPageFile(page)
         val file = File(page.imageUrl)
         if (file.exists()) {
             file.delete()
@@ -86,8 +92,11 @@ class ColorNestRepository(private val context: Context) {
             tags = tags
         )
         pageDao.updatePage(updated)
+        driveSyncManager.propagatePageChange(updated)
         ColorNestDocumentsProvider.notifyChanged(context)
     }
+
+    suspend fun trashCloudFolder(): Boolean = driveSyncManager.trashRootFolder()
 
     suspend fun wipeAllData() = withContext(Dispatchers.IO) {
         imagesDir.listFiles()?.forEach { it.delete() }
