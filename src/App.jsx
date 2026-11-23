@@ -333,6 +333,7 @@ function App() {
               onError={(event) => { event.currentTarget.alt = 'This image could not be loaded.'; event.currentTarget.style.display = 'none'; }}
             />
           </div>
+          <p className="px-3 pb-3 pt-1 text-center text-[11px] text-gray-500">The white background is only for viewing — it won’t be in the actual file.</p>
         </div>
       )}
 
