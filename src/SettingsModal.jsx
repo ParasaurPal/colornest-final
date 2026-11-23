@@ -97,30 +97,53 @@ export default function SettingsModal({ onClose }) {
       setAiTagStatus('Add and save your Gemini API key first.');
       return;
     }
-    const pending = (await db.pages.toArray()).filter(page => page.imageUrl && !page.aiScannedAt);
+    const pending = (await db.pages.toArray()).filter(page => (page.imageUrl || page.thumbnailUrl) && !page.aiScannedAt);
     if (!pending.length) {
-      setAiTagStatus('All locally stored images have already been AI-scanned.');
+      setAiTagStatus('All locally available images have already been AI-scanned.');
       return;
     }
     setAiTagging(true);
     setAiTagProgress({ done: 0, total: pending.length });
     setAiTagStatus('Scanning your library…');
-    let tagged = 0;
+    const { suggestPageTags, applyPageTagSuggestions } = await import('./aiTagging');
+    const suggestions = [];
     let failed = 0;
     for (let index = 0; index < pending.length; index++) {
       const page = pending[index];
       setAiTagStatus(`Scanning ${index + 1} of ${pending.length}: ${page.title || 'Untitled'}`);
       try {
-        const { scanAndTagPage } = await import('./aiTagging');
-        await scanAndTagPage(page, key);
-        tagged++;
+        const tags = await suggestPageTags({
+          apiKey: key,
+          imageUrl: page.imageUrl || page.thumbnailUrl,
+          fileName: page.title,
+        });
+        suggestions.push({ page, tags });
       } catch (error) {
         failed++;
-        console.warn('AI tagging failed for page:', page.id, error);
+        console.warn('AI scan failed for page:', page.id, error);
       }
       setAiTagProgress({ done: index + 1, total: pending.length });
     }
-    setAiTagStatus(`Finished: ${tagged} tagged, ${failed} failed.${failed ? ' You can retry failed pages after checking your connection and API key.' : ''}`);
+
+    if (suggestions.length) {
+      const preview = suggestions.slice(0, 20).map(item =>
+        `• ${item.page.title || 'Untitled'}: ${item.tags.join(', ')}`
+      ).join('\n');
+      const more = suggestions.length > 20 ? `\n…and ${suggestions.length - 20} more files.` : '';
+      const approved = window.confirm(
+        `Review AI tag suggestions for ${suggestions.length} files:\n\n${preview}${more}\n\nApply these tags? Existing tags will be kept.`
+      );
+      if (approved) {
+        for (const item of suggestions) {
+          await applyPageTagSuggestions(item.page, item.tags);
+        }
+        setAiTagStatus(`Applied AI tags to ${suggestions.length} files.${failed ? ` ${failed} files could not be scanned and can be retried.` : ''}`);
+      } else {
+        setAiTagStatus(`Scanned ${suggestions.length} files. No tags were changed; run the scan again whenever you are ready to apply them.`);
+      }
+    } else {
+      setAiTagStatus(`No suggestions were generated. ${failed} files failed to scan; check your connection and API key, then retry.`);
+    }
     setAiTagging(false);
   };
 
@@ -487,7 +510,7 @@ export default function SettingsModal({ onClose }) {
               <Sparkles size={18} /> AI subject tagging
             </h3>
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-              Gemini can inspect each coloring-page image and its filename, then add useful subject tags such as animals, flowers, vehicles, or fantasy. Existing tags are kept. Images are sent to Google for analysis only when you run a scan or enable automatic tagging.
+              Gemini can inspect each coloring-page image and its filename, then add useful subject tags such as animals, flowers, vehicles, or fantasy. Existing tags are kept. Images and filenames are sent to Google for analysis only when you run a scan or enable automatic tagging. Manual scans show a review before applying suggestions.
             </p>
             <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">Google Gemini API key</label>
             <input
