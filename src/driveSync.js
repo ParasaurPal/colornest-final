@@ -20,6 +20,17 @@
 // trash, never a permanent delete. Trashed Drive files stay recoverable
 // from the Drive trash for 30 days.
 import { db } from './db';
+
+async function includeCategoryTag(categoryId, existingTags = []) {
+  if (!categoryId) return [...new Set(existingTags || [])];
+  const category = await db.categories.get(categoryId);
+  const categoryName = String(category?.name || '').trim();
+  if (!categoryName) return [...new Set(existingTags || [])];
+  const tags = [...new Set([...(existingTags || []), categoryName])];
+  const exists = await db.tags.where('name').equals(categoryName).first();
+  if (!exists) await db.tags.add({ name: categoryName, createdAt: Date.now() });
+  return tags;
+}
 import {
   getOrCreateFolder,
   findFolder,
@@ -265,6 +276,7 @@ export async function downloadDriveFile(entry) {
   if (metadata?.categoryPath?.length) {
     categoryId = await ensureLocalCategoryPath(metadata.categoryPath);
   }
+  const importedTags = await includeCategoryTag(categoryId, metadata?.tags);
   await db.pages.add({
     updatedAt: Number(metadata?.updatedAt || Date.now()),
     title: metadata?.title || (entry.name.includes('.') ? entry.name.substring(0, entry.name.lastIndexOf('.')) || 'Untitled page' : entry.name),
@@ -280,7 +292,7 @@ export async function downloadDriveFile(entry) {
     isUncategorized: metadata ? (metadata.isUncategorized ? 1 : 0) : (categoryId === null ? 1 : 0),
     driveFileId: entry.id,
     syncId: metadata?.syncId || undefined,
-    tags: Array.isArray(metadata?.tags) ? metadata.tags : [],
+    tags: importedTags,
     whiteBackgroundProcessed: true,
     whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
   });
@@ -309,6 +321,7 @@ async function downloadDrivePdf(entry) {
   const baseTitle = entry.name.replace(/\.pdf$/i, '') || 'Imported PDF';
   const now = Date.now();
   const pageThumbnails = await Promise.all(transparentPageImages.map((imageUrl) => tryCreateThumbnail(imageUrl)));
+  const pdfTags = await includeCategoryTag(entry.categoryId, []);
   const newPages = transparentPageImages.map((imageUrl, pageIndex) => ({
     updatedAt: now,
     title: `${baseTitle} - Page ${pageIndex + 1}`,
@@ -323,7 +336,7 @@ async function downloadDrivePdf(entry) {
     progress: 0,
     isUncategorized: entry.categoryId ? 0 : 1,
     driveFileId: null,
-    tags: [],
+    tags: pdfTags,
     whiteBackgroundProcessed: true,
     whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
   }));
@@ -389,6 +402,7 @@ async function importPreviewEntry(remote, metadata, categoryIdByFolder) {
     categoryId = await ensureLocalCategoryPath(metadata.categoryPath);
   }
   const thumbnailDataUrl = remote.thumbnailLink ? await fetchThumbnailDataUrl(remote.thumbnailLink) : null;
+  const importedTags = await includeCategoryTag(categoryId, metadata?.tags);
   await db.pages.add({
     updatedAt: Number(metadata?.updatedAt || Date.now()),
     title: metadata?.title || (remote.name.includes('.') ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page' : remote.name),
@@ -406,7 +420,7 @@ async function importPreviewEntry(remote, metadata, categoryIdByFolder) {
     isUncategorized: metadata ? (metadata.isUncategorized ? 1 : 0) : (categoryId === null ? 1 : 0),
     driveFileId: remote.id,
     syncId: metadata?.syncId || undefined,
-    tags: Array.isArray(metadata?.tags) ? metadata.tags : [],
+    tags: importedTags,
   });
 }
 
