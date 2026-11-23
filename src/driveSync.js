@@ -1,15 +1,19 @@
-// Two-way Google Drive synchronization for the ColorNest PWA.
-// The browser's IndexedDB library remains the offline working copy.
+// Google Drive previews for the ColorNest PWA. Preview-only by design:
+// importing from Drive stores just a small preview thumbnail per file —
+// the full files are never downloaded to the device. Opening a preview
+// fetches a larger temporary preview (kept only in memory, cleared when
+// the app closes), and sharing a page downloads the original from Drive
+// just for the share.
 //
+// The browser's IndexedDB library remains the offline working copy.
 // Layout in Drive: a top-level "ColorNest" folder holds one folder per
 // category, mirroring the nested category tree
 // (ColorNest/Animals/Mammals/Dogs). Pages without a category live in
 // ColorNest/Untagged.
 //
 // Deletion rule: sync NEVER permanently deletes anything from Drive.
-// Deleting a page in the app moves its Drive file to the trash, and a page
-// whose Drive file was trashed is removed from the app. Trashed Drive files
-// stay recoverable from the Drive trash for 30 days.
+// Deleting a page in the app moves its Drive file to the trash. Trashed
+// Drive files stay recoverable from the Drive trash for 30 days.
 import { db } from './db';
 import {
   getOrCreateFolder,
@@ -18,6 +22,8 @@ import {
   listChildren,
   uploadFile,
   downloadFile,
+  fetchThumbnailDataUrl,
+  largeThumbnailUrl,
   moveFile,
   renameFile,
   trashFile,
@@ -27,9 +33,6 @@ import {
   updateFileContent,
 } from './driveService';
 import { DRIVE_ROOT_FOLDER_NAME, DRIVE_UNTAGGED_FOLDER_NAME } from './driveConfig';
-import { convertPdfToImages } from './pdfConverter';
-import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
-import { tryCreateThumbnail } from './thumbnails';
 
 const KEY_LAST_SYNC = 'driveLastSync';
 const KEY_TOMBSTONES = 'driveTombstones';
@@ -295,42 +298,85 @@ async function syncPageMetadata(rootId, metadataFolderId, remoteFiles) {
 export function formatSyncSummary(result) {
   if (result.notConnected) return 'Not connected to Google Drive';
   const parts = [];
-  if (result.pdfsConverted > 0) parts.push(`${result.pdfsConverted} PDFs converted (${result.pdfPagesCreated} pages)`);
-  if (result.pdfsArchived > 0) parts.push(`${result.pdfsArchived} original PDFs archived`);
-  if (result.uploaded > 0) parts.push(`${result.uploaded} uploaded`);
-  if (result.downloaded > 0) parts.push(`${result.downloaded} downloaded`);
-  if (result.moved > 0) parts.push(`${result.moved} moved`);
-  if (result.renamed > 0) parts.push(`${result.renamed} renamed`);
-  if (result.removedLocal > 0) parts.push(`${result.removedLocal} removed`);
-  if (result.metadataUploaded > 0) parts.push(`${result.metadataUploaded} metadata records uploaded`);
-  if (result.metadataDownloaded > 0) parts.push(`${result.metadataDownloaded} metadata records updated`);
+  if (result.previewsImported > 0) parts.push(`${result.previewsImported} preview${result.previewsImported === 1 ? '' : 's'} imported`);
+  if (result.pdfsArchived > 0) parts.push(`${result.pdfsArchived} PDF${result.pdfsArchived === 1 ? '' : 's'} archived`);
   return parts.length === 0
     ? 'Sync complete — everything is up to date'
     : 'Sync complete — ' + parts.join(', ');
 }
 
 /**
- * Runs a full two-way sync. Returns a result object; throws on network/API
- * errors so the caller can show the failure.
+ * Adds one Drive file to the library as a preview-only entry: a small
+ * preview thumbnail is stored, but the full file is never downloaded.
+ * The full image is only fetched temporarily when the page is opened, or
+ * in full when the user shares it.
+ */
+async function importPreviewEntry(remote, metadata, categoryIdByFolder) {
+  let categoryId = categoryIdByFolder.get(remote.parentIds?.[0]) ?? null;
+  if (metadata?.categoryPath?.length) {
+    categoryId = await ensureLocalCategoryPath(metadata.categoryPath);
+  }
+  const thumbnailDataUrl = remote.thumbnailLink ? await fetchThumbnailDataUrl(remote.thumbnailLink) : null;
+  await db.pages.add({
+    updatedAt: Number(metadata?.updatedAt || Date.now()),
+    title: metadata?.title || (remote.name.includes('.') ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page' : remote.name),
+    categoryId,
+    complexity: metadata?.complexity || 'Beginner',
+    time: metadata?.time || 'TBD',
+    tool: metadata?.tool || 'TBD',
+    imageUrl: null,
+    ...(thumbnailDataUrl || remote.thumbnailLink ? { thumbnailUrl: thumbnailDataUrl || remote.thumbnailLink } : {}),
+    ...(remote.thumbnailLink ? { driveThumbnailLink: remote.thumbnailLink } : {}),
+    isPreviewOnly: 1,
+    isFavorite: metadata?.isFavorite ? 1 : 0,
+    isCompleted: metadata?.isCompleted ? 1 : 0,
+    progress: Number(metadata?.progress || 0),
+    isUncategorized: metadata ? (metadata.isUncategorized ? 1 : 0) : (categoryId === null ? 1 : 0),
+    driveFileId: remote.id,
+    syncId: metadata?.syncId || undefined,
+    tags: Array.isArray(metadata?.tags) ? metadata.tags : [],
+  });
+}
+
+/**
+ * Fetches a larger temporary preview for a preview-only page, for the
+ * viewer. Returns a data URL (or the Drive thumbnail link when the
+ * download fails), or null when no preview exists. The caller keeps it
+ * only in memory — it is never written to storage.
+ */
+export async function fetchTempPreviewUrl(page) {
+  const link = page.driveThumbnailLink || (typeof page.thumbnailUrl === 'string' && page.thumbnailUrl.startsWith('http') ? page.thumbnailUrl : null);
+  if (!link) return null;
+  const large = largeThumbnailUrl(link);
+  return (await fetchThumbnailDataUrl(large)) || large;
+}
+
+/**
+ * Imports previews of new Drive files into the library. Only small preview
+ * thumbnails are stored — the full files are never downloaded. Returns a
+ * result object; throws on network/API errors so the caller can show the
+ * failure.
  */
 export async function syncDrive() {
   if (!isDriveConnected()) {
-    return { notConnected: true, uploaded: 0, downloaded: 0, moved: 0, renamed: 0, removedLocal: 0 };
+    return { notConnected: true, previewsImported: 0, pdfsArchived: 0 };
   }
-
-  // Import-only sync: never upload, rename, move, delete, or rewrite existing
-  // library pages. Existing local pages remain untouched.
-  reportScanProgress({ phase: 'connect', percent: 3, message: 'Connecting to Google Drive…' });
   const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
   const metadataFolderId = await getOrCreateFolder(METADATA_FOLDER_NAME, rootId);
   const pdfInboxId = await getOrCreateFolder(PDF_INBOX_FOLDER_NAME, rootId);
   const processedPdfsId = await getOrCreateFolder(PROCESSED_PDFS_FOLDER_NAME, rootId);
 
-  let pdfsConverted = 0;
-  let pdfPagesCreated = 0;
+  let previewsImported = 0;
   let pdfsArchived = 0;
   const processedPdfIds = new Set((await getSetting(KEY_PROCESSED_PDF_IDS) || '').split(',').filter(Boolean));
 
+  const pages = await db.pages.toArray();
+  const localDriveIds = new Set(pages.map(page => page.driveFileId).filter(Boolean));
+  const categories = await db.categories.toArray();
+  const categoryIdByFolder = new Map(categories.filter(category => category.driveFolderId).map(category => [category.driveFolderId, category.id]));
+
+  // PDF Inbox: import a preview-only entry for each new PDF, then move the
+  // original to Processed PDFs.
   reportScanProgress({ phase: 'pdfs', percent: 8, message: 'Checking PDF Inbox…' });
   const inboxFiles = await listChildren(pdfInboxId);
   const pdfFiles = inboxFiles.filter(file => file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
@@ -338,42 +384,12 @@ export async function syncDrive() {
     const file = pdfFiles[index];
     reportScanProgress({ phase: 'pdfs', percent: 10 + Math.round(((index + 1) / Math.max(pdfFiles.length, 1)) * 25), message: `Checking PDF ${index + 1} of ${pdfFiles.length}: ${file.name}` });
     try {
-      if (!processedPdfIds.has(file.id)) {
-        const pdfBlob = await downloadFile(file.id);
-        const pageImages = await convertPdfToImages(await pdfBlob.arrayBuffer());
-        if (!pageImages.length) throw new Error('The PDF did not contain any pages.');
-        const transparentPageImages = [];
-        for (const imageUrl of pageImages) {
-          transparentPageImages.push(await removeWhiteBackground(imageUrl));
-        }
-        const baseTitle = file.name.replace(/\.pdf$/i, '') || 'Imported PDF';
-        const now = Date.now();
-        const pageThumbnails = await Promise.all(transparentPageImages.map((imageUrl) => tryCreateThumbnail(imageUrl)));
-        const newPages = transparentPageImages.map((imageUrl, pageIndex) => ({
-          updatedAt: now,
-          title: `${baseTitle} - Page ${pageIndex + 1}`,
-          categoryId: null,
-          complexity: 'Beginner',
-          time: 'TBD',
-          tool: 'TBD',
-          imageUrl,
-          ...(pageThumbnails[pageIndex] ? { thumbnailUrl: pageThumbnails[pageIndex] } : {}),
-          isFavorite: 0,
-          isCompleted: 0,
-          progress: 0,
-          isUncategorized: 1,
-          driveFileId: null,
-          tags: [],
-          whiteBackgroundProcessed: true,
-          whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
-        }));
-        await db.transaction('rw', db.pages, db.settings, async () => {
-          await db.pages.bulkAdd(newPages);
-          await setSetting(KEY_PROCESSED_PDF_IDS, [...processedPdfIds, file.id].join(','));
-        });
+      if (!processedPdfIds.has(file.id) && !localDriveIds.has(file.id)) {
+        await importPreviewEntry(file, null, categoryIdByFolder);
+        localDriveIds.add(file.id);
         processedPdfIds.add(file.id);
-        pdfsConverted++;
-        pdfPagesCreated += pageImages.length;
+        await setSetting(KEY_PROCESSED_PDF_IDS, [...processedPdfIds].join(','));
+        previewsImported++;
       }
       await moveFile(file.id, file.parentIds || [], processedPdfsId);
       pdfsArchived++;
@@ -382,13 +398,11 @@ export async function syncDrive() {
     }
   }
 
-  reportScanProgress({ phase: 'drive', percent: 40, message: 'Looking for new Drive images…' });
+  reportScanProgress({ phase: 'drive', percent: 40, message: 'Looking for new Drive files…' });
   const remoteFiles = await listTree(rootId);
-  const pages = await db.pages.toArray();
-  const localDriveIds = new Set(pages.map(page => page.driveFileId).filter(Boolean));
   const tombstones = await readTombstones();
 
-  // Read metadata sidecars only to enrich newly imported images.
+  // Read metadata sidecars only to enrich newly imported previews.
   const metadataFiles = [
     ...(await listChildren(metadataFolderId)),
     ...(await listChildren(rootId)).filter(file => file.name?.startsWith(PAGE_META_PREFIX)),
@@ -405,51 +419,22 @@ export async function syncDrive() {
     }
   }
 
-  const categories = await db.categories.toArray();
-  const categoryIdByFolder = new Map(categories.filter(category => category.driveFolderId).map(category => [category.driveFolderId, category.id]));
-  const remoteImages = remoteFiles.filter(file => file.mimeType?.startsWith('image/'));
-  let downloaded = 0;
-
-  for (let index = 0; index < remoteImages.length; index++) {
-    const remote = remoteImages[index];
-    reportScanProgress({ phase: 'downloads', percent: 45 + Math.round(((index + 1) / Math.max(remoteImages.length, 1)) * 50), message: `Checking new images ${index + 1} of ${remoteImages.length}` });
+  const remoteMedia = remoteFiles.filter(file => file.mimeType?.startsWith('image/') || file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
+  for (let index = 0; index < remoteMedia.length; index++) {
+    const remote = remoteMedia[index];
+    reportScanProgress({ phase: 'downloads', percent: 45 + Math.round(((index + 1) / Math.max(remoteMedia.length, 1)) * 50), message: `Importing previews ${index + 1} of ${remoteMedia.length}` });
     if (localDriveIds.has(remote.id) || tombstones.has(remote.id)) continue;
+    if (processedPdfIds.has(remote.id)) continue;
 
     const metadata = metadataByDriveId.get(remote.id);
-    let categoryId = categoryIdByFolder.get(remote.parentIds?.[0]) ?? null;
-    if (metadata?.categoryPath?.length) {
-      categoryId = await ensureLocalCategoryPath(metadata.categoryPath);
-    }
-    const extension = remote.name.includes('.') ? remote.name.substring(remote.name.lastIndexOf('.') + 1) : 'jpg';
-    const blob = await downloadFile(remote.id);
-    const localImageUrl = await removeWhiteBackground(blob);
-    const thumbnailUrl = await tryCreateThumbnail(localImageUrl);
-    await db.pages.add({
-      updatedAt: Number(metadata?.updatedAt || Date.now()),
-      title: metadata?.title || (remote.name.includes('.') ? remote.name.substring(0, remote.name.lastIndexOf('.')) || 'Untitled page' : remote.name),
-      categoryId,
-      complexity: metadata?.complexity || 'Beginner',
-      time: metadata?.time || 'TBD',
-      tool: metadata?.tool || 'TBD',
-      imageUrl: localImageUrl,
-      ...(thumbnailUrl ? { thumbnailUrl } : {}),
-      isFavorite: metadata?.isFavorite ? 1 : 0,
-      isCompleted: metadata?.isCompleted ? 1 : 0,
-      progress: Number(metadata?.progress || 0),
-      isUncategorized: metadata ? (metadata.isUncategorized ? 1 : 0) : (categoryId === null ? 1 : 0),
-      driveFileId: remote.id,
-      syncId: metadata?.syncId || undefined,
-      tags: Array.isArray(metadata?.tags) ? metadata.tags : [],
-      whiteBackgroundProcessed: true,
-      whiteBackgroundVersion: WHITE_BACKGROUND_VERSION,
-    });
+    await importPreviewEntry(remote, metadata, categoryIdByFolder);
     localDriveIds.add(remote.id);
-    downloaded++;
+    previewsImported++;
   }
 
   await setSetting(KEY_LAST_SYNC, Date.now());
-  const result = { notConnected: false, uploaded: 0, downloaded, moved: 0, renamed: 0, removedLocal: 0, metadataUploaded: 0, metadataDownloaded: 0, pdfsConverted, pdfPagesCreated, pdfsArchived };
-  finishScanProgress({ message: 'New Drive files imported', result });
+  const result = { notConnected: false, previewsImported, pdfsArchived };
+  finishScanProgress({ message: 'Previews imported', result });
   return result;
 }
 

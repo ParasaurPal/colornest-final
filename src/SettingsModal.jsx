@@ -15,8 +15,9 @@ import {
 
 // A page needs (re)processing when it was never processed, or when it was
 // processed with an older version of the white-background filter.
+// Preview-only pages have no local image, so they are never reprocessed.
 const needsWhiteBackgroundReprocessing = (page) =>
-  page.whiteBackgroundProcessed !== true || (page.whiteBackgroundVersion || 0) < WHITE_BACKGROUND_VERSION;
+  Boolean(page.imageUrl) && (page.whiteBackgroundProcessed !== true || (page.whiteBackgroundVersion || 0) < WHITE_BACKGROUND_VERSION);
 
 export default function SettingsModal({ onClose }) {
   const [isSeeding, setIsSeeding] = useState(false);
@@ -198,7 +199,7 @@ export default function SettingsModal({ onClose }) {
       setDriveStatus("Connecting…");
       await connectDrive();
       await refreshDriveState();
-      setDriveStatus("Connected — tap Import new files when you want to download new Drive files.");
+      setDriveStatus("Connected — tap Import previews to add previews of your Drive files.");
     } catch (e) {
       setDriveStatus("Could not connect: " + e.message);
     }
@@ -327,7 +328,7 @@ export default function SettingsModal({ onClose }) {
             {!driveConnected && (
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 mb-2">
                 {isDriveConfigured()
-                  ? 'Connect to back up your pages to a ColorNest folder in Google Drive. Categories become folders, and images you drop in yourself are picked up automatically.'
+                  ? 'Connect to browse your ColorNest folder in Google Drive. Import previews adds small previews of your Drive files to the library — full files are never downloaded.'
                   : 'Google Drive is not set up yet — add your Web OAuth client ID to a .env file first (see DRIVE_SETUP.md in the project).'}
               </p>
             )}
@@ -343,13 +344,13 @@ export default function SettingsModal({ onClose }) {
               <>
                 <div className="flex gap-2 mt-3">
                   <button onClick={handleDriveSyncNow} disabled={isSyncing} className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">
-                    {isSyncing ? 'Syncing…' : 'Import new files'}
+                    {isSyncing ? 'Syncing…' : 'Import previews'}
                   </button>
                   <button onClick={handleDriveDisconnect} className="flex-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white py-2 rounded-lg font-bold">
                     Disconnect
                   </button>
                 </div>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Nothing is downloaded automatically. Import new files downloads new Drive images and converts PDFs from ColorNest/PDF Inbox, moving originals to Processed PDFs. Existing pages are never re-uploaded, renamed, moved, or deleted.</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Nothing is downloaded automatically. Import previews adds small preview thumbnails of new Drive images and PDFs to your library — the full files stay in Drive. Opening a preview shows a temporary preview that is cleared when the app closes; sharing sends the original from Drive. PDFs from ColorNest/PDF Inbox are moved to Processed PDFs after their preview is imported. Existing pages are never re-uploaded, renamed, moved, or deleted.</p>
               </>
             ) : (
               <button onClick={handleDriveConnect} disabled={!isDriveConfigured()} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">

@@ -196,7 +196,7 @@ export async function listChildren(folderId) {
   let pageToken = null;
   do {
     const q = `'${folderId}' in parents and trashed = false`;
-    let url = `/files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name,mimeType,parents)&pageSize=1000`;
+    let url = `/files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name,mimeType,parents,thumbnailLink)&pageSize=1000`;
     if (pageToken) url += `&pageToken=${pageToken}`;
     const res = await driveFetch(url);
     const data = await res.json();
@@ -206,6 +206,7 @@ export async function listChildren(folderId) {
         name: file.name,
         mimeType: file.mimeType,
         parentIds: file.parents || [],
+        thumbnailLink: file.thumbnailLink || null,
       });
     }
     pageToken = data.nextPageToken;
@@ -273,6 +274,39 @@ export async function uploadFile(blob, name, folderId, mimeType) {
 export async function downloadFile(fileId) {
   const res = await driveFetch(`/files/${fileId}?alt=media`);
   return res.blob();
+}
+
+// Drive thumbnail links end with a size suffix like =s220; ask for a
+// larger preview when one is needed.
+export function largeThumbnailUrl(link) {
+  if (!link) return null;
+  return link.replace(/=s\d+$/, '=s1600');
+}
+
+/**
+ * Downloads a Drive thumbnail and returns it as a data URL, so previews
+ * work offline and don't depend on short-lived thumbnail links. Returns
+ * null when the file has no thumbnail or the download fails (callers fall
+ * back to using the thumbnail link directly).
+ */
+export async function fetchThumbnailDataUrl(thumbnailLink) {
+  if (!thumbnailLink) return null;
+  try {
+    const token = await getAccessToken();
+    const res = await fetch(thumbnailLink, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function moveFile(fileId, currentParentIds, newParentId) {
