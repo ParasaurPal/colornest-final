@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './db';
+import { FolderOpen } from 'lucide-react';
 import { X, Tags, ShieldAlert, RefreshCw, AlertTriangle, Cloud, CheckCircle2 } from 'lucide-react';
 import { seedMassiveCategories } from './prepopulate';
 import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackground';
 import { tryCreateThumbnail } from './thumbnails';
+import DriveFolderPickerModal from './DriveFolderPickerModal';
 import { isDriveConfigured } from './driveConfig';
 import { connectDrive, disconnectDrive, isDriveConnected, getDriveAccountEmail } from './driveService';
 import {
@@ -14,6 +16,7 @@ import {
   isScanOnOpenEnabled,
   setScanOnOpenEnabled,
   triggerBackgroundSync,
+  getDriveRootFolder,
 } from './driveSync';
 import DriveBrowserModal from './DriveBrowserModal';
 
@@ -46,12 +49,15 @@ export default function SettingsModal({ onClose }) {
   const [imageProgress, setImageProgress] = useState({ done: 0, total: 0 });
   const [imageProcessStatus, setImageProcessStatus] = useState('');
   const [unprocessedImageCount, setUnprocessedImageCount] = useState(0);
+  const [driveRootFolderName, setDriveRootFolderName] = useState('ColorNest');
+  const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
 
   const refreshDriveState = async () => {
     setDriveConnected(isDriveConnected());
     setDriveAccount(getDriveAccountEmail());
     setDriveLastSync(await getLastSyncMillis());
     setDriveScanOnOpen(await isScanOnOpenEnabled());
+    setDriveRootFolderName((await getDriveRootFolder()).name);
   };
 
   // Load the Drive state when the modal opens. The reads are async (Dexie),
@@ -63,11 +69,13 @@ export default function SettingsModal({ onClose }) {
       const account = getDriveAccountEmail();
       const lastSync = await getLastSyncMillis();
       const scanOnOpen = await isScanOnOpenEnabled();
+      const rootFolder = await getDriveRootFolder();
       if (!active) return;
       setDriveConnected(connected);
       setDriveAccount(account);
       setDriveLastSync(lastSync);
       setDriveScanOnOpen(scanOnOpen);
+      setDriveRootFolderName(rootFolder.name);
     })();
     return () => { active = false; };
   }, []);
@@ -396,13 +404,21 @@ export default function SettingsModal({ onClose }) {
                   <input type="checkbox" checked={driveScanOnOpen} onChange={(e) => handleDriveScanToggle(e.target.checked)} className="w-5 h-5 accent-purple-600" />
                   <span className="text-sm font-bold text-gray-800 dark:text-white">Import new Drive files when the app opens</span>
                 </label>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">New Drive files are imported automatically as small previews when the app opens — full files are never downloaded unless you download them from the browser or share them. Import previews checks for new files now. PDFs from ColorNest/PDF Inbox are moved to Processed PDFs after their preview is imported. Downloading a PDF from the browser converts it into pages.</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">New Drive files are imported automatically as small previews when the app opens — full files are never downloaded unless you download them or share them. Import previews checks for new files now. PDFs from the PDF Inbox are moved to Processed PDFs after their preview is imported. Downloading a PDF converts it into pages.</p>
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-sm text-gray-800 dark:text-white"><span className="font-bold">Drive folder:</span> {driveRootFolderName}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 mb-2">ColorNest syncs with this folder in Google Drive. Your library stays as it is when you switch — only new imports come from the new folder.</p>
+                  <button onClick={() => setIsFolderPickerOpen(true)} className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white py-2 rounded-lg font-bold flex items-center justify-center gap-2">
+                    <FolderOpen size={16} /> Choose folder
+                  </button>
+                </div>
               </>
             ) : (
               <button onClick={handleDriveConnect} disabled={!isDriveConfigured()} className="w-full bg-purple-600 text-white py-2 rounded-lg font-bold mt-2 disabled:opacity-50">
                 Connect Google Drive
               </button>
             )}
+            {isFolderPickerOpen && <DriveFolderPickerModal onClose={() => setIsFolderPickerOpen(false)} onSelect={(folder) => { setDriveRootFolderName(folder.name); setIsFolderPickerOpen(false); }} />}
           </div>
 
           <div className="border border-red-200 dark:border-red-900 rounded-xl p-4">
@@ -517,3 +533,4 @@ export default function SettingsModal({ onClose }) {
     </div>
   );
 }
+

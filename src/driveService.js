@@ -214,6 +214,14 @@ export async function listChildren(folderId) {
   return out;
 }
 
+/** Lists the subfolders of a folder, for the Drive folder picker. */
+export async function listFolders(parentId) {
+  const q = `'${parentId}' in parents and mimeType = '${FOLDER_MIME_TYPE}' and trashed = false`;
+  const res = await driveFetch(`/files?q=${encodeURIComponent(q)}&fields=files(id,name)&orderBy=name&pageSize=1000`);
+  const data = await res.json();
+  return (data.files || []).map((file) => ({ id: file.id, name: file.name }));
+}
+
 /** Recursively lists every non-folder file under a folder. */
 export async function listTree(rootId) {
   const out = [];
@@ -377,3 +385,4 @@ export async function updateFileContent(fileId, blob, mimeType) {
   }
   return res.json();
 }
+

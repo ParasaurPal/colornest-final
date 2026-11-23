@@ -12,7 +12,9 @@
 // move/rename the Drive copy and deletes can trash it.
 //
 // Layout in Drive: a top-level "ColorNest" folder holds one folder per
-// category, mirroring the nested category tree
+// category, mirroring the nested category tree. The root folder can be
+// changed in Settings (Google Drive > Choose folder); it defaults to
+// "ColorNest".
 // (ColorNest/Animals/Mammals/Dogs). Pages without a category live in
 // ColorNest/Untagged.
 //
@@ -40,6 +42,8 @@ import { removeWhiteBackground, WHITE_BACKGROUND_VERSION } from './whiteBackgrou
 import { tryCreateThumbnail } from './thumbnails';
 
 const KEY_PROCESSED_PDF_IDS = 'driveProcessedPdfIds';
+const KEY_DRIVE_ROOT_FOLDER_ID = 'driveRootFolderId';
+const KEY_DRIVE_ROOT_FOLDER_NAME = 'driveRootFolderName';
 const PDF_INBOX_FOLDER_NAME = 'PDF Inbox';
 const PROCESSED_PDFS_FOLDER_NAME = 'Processed PDFs';
 const METADATA_FOLDER_NAME = 'Metadata';
@@ -72,6 +76,29 @@ export async function isScanOnOpenEnabled() {
 
 export async function setScanOnOpenEnabled(enabled) {
   await setSetting(KEY_SCAN_ON_OPEN, enabled);
+}
+
+// The Drive folder ColorNest syncs with: the folder the user chose in
+// Settings, or the default "ColorNest" folder when none is chosen.
+export async function getDriveRootFolder() {
+  const id = await getSetting(KEY_DRIVE_ROOT_FOLDER_ID);
+  const name = await getSetting(KEY_DRIVE_ROOT_FOLDER_NAME);
+  if (id) return { id, name: name || DRIVE_ROOT_FOLDER_NAME };
+  return { id: null, name: DRIVE_ROOT_FOLDER_NAME };
+}
+
+export async function setDriveRootFolder(id, name) {
+  await setSetting(KEY_DRIVE_ROOT_FOLDER_ID, id);
+  await setSetting(KEY_DRIVE_ROOT_FOLDER_NAME, name);
+}
+
+// Resolves the root folder id for Drive operations. With createIfMissing,
+// the default folder is created when it doesn't exist yet.
+async function getDriveRootFolderId(createIfMissing) {
+  const stored = await getSetting(KEY_DRIVE_ROOT_FOLDER_ID);
+  if (stored) return stored;
+  if (createIfMissing) return getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+  return findFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
 }
 
 export async function getLastSyncMillis() {
@@ -178,7 +205,7 @@ export async function listDriveFiles() {
   if (!isDriveConnected()) {
     return { notConnected: true, files: [] };
   }
-  const rootId = await findFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+  const rootId = await getDriveRootFolderId(false);
   if (!rootId) return { notConnected: false, files: [] };
   const metadataFolderId = await findFolder(METADATA_FOLDER_NAME, rootId);
 
@@ -294,7 +321,7 @@ async function downloadDrivePdf(entry) {
   const previewEntry = await db.pages.filter(page => page.driveFileId === entry.id && page.isPreviewOnly === 1).first();
   if (processedPdfIds.has(entry.id) && !previewEntry) throw new Error('This PDF was already imported.');
 
-  const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+  const rootId = await getDriveRootFolderId(true);
   const pdfInboxId = await findFolder(PDF_INBOX_FOLDER_NAME, rootId);
   const processedPdfsId = await getOrCreateFolder(PROCESSED_PDFS_FOLDER_NAME, rootId);
 
@@ -409,7 +436,7 @@ export async function syncDrive() {
   if (!isDriveConnected()) {
     return { notConnected: true, previewsImported: 0, pdfsArchived: 0 };
   }
-  const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+  const rootId = await getDriveRootFolderId(true);
   const metadataFolderId = await getOrCreateFolder(METADATA_FOLDER_NAME, rootId);
   const pdfInboxId = await getOrCreateFolder(PDF_INBOX_FOLDER_NAME, rootId);
   const processedPdfsId = await getOrCreateFolder(PROCESSED_PDFS_FOLDER_NAME, rootId);
@@ -530,7 +557,7 @@ export async function trashPageFile(page) {
   try {
     await trashFile(driveId);
     if (page.syncId) {
-      const rootId = await findFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+      const rootId = await getDriveRootFolderId(false);
       if (rootId) {
         const metadataFolderId = await findFolder(METADATA_FOLDER_NAME, rootId);
         const metadataFile = (metadataFolderId ? await findFileByName(pageMetadataName(page.syncId), metadataFolderId) : null) || await findFileByName(pageMetadataName(page.syncId), rootId);
@@ -557,7 +584,7 @@ export async function propagatePageChange(pageId) {
   try {
     const page = await db.pages.get(pageId);
     if (!page || !page.driveFileId || !isDriveConnected()) return;
-    const rootId = await getOrCreateFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+    const rootId = await getDriveRootFolderId(true);
     const untaggedId = await getOrCreateFolder(DRIVE_UNTAGGED_FOLDER_NAME, rootId);
     const categories = await db.categories.toArray();
     let expectedFolder = untaggedId;
@@ -592,10 +619,11 @@ export async function propagatePageChange(pageId) {
 export async function trashRootFolder() {
   try {
     if (!isDriveConnected()) return;
-    const rootId = await findFolder(DRIVE_ROOT_FOLDER_NAME, 'root');
+    const rootId = await getDriveRootFolderId(false);
     if (!rootId) return;
     await trashFile(rootId);
   } catch (e) {
     console.log('Could not trash Drive folder:', e.message);
   }
 }
+
