@@ -276,6 +276,13 @@ export async function downloadFile(fileId) {
   return res.blob();
 }
 
+/** Reads a file's name, type and parents without downloading its contents. */
+export async function getFileMetadata(fileId) {
+  const res = await driveFetch(`/files/${fileId}?fields=id,name,mimeType,parents`);
+  const data = await res.json();
+  return { id: data.id, name: data.name, mimeType: data.mimeType, parents: data.parents || [] };
+}
+
 // Drive thumbnail links end with a size suffix like =s220; ask for a
 // larger preview when one is needed.
 export function largeThumbnailUrl(link) {
@@ -377,3 +384,4 @@ export async function updateFileContent(fileId, blob, mimeType) {
   }
   return res.json();
 }
+

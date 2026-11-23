@@ -33,6 +33,7 @@ import {
   trashFile,
   isDriveConnected,
   findFileByName,
+  getFileMetadata,
 } from './driveService';
 import { DRIVE_ROOT_FOLDER_NAME, DRIVE_UNTAGGED_FOLDER_NAME } from './driveConfig';
 import { convertPdfToImages } from './pdfConverter';
@@ -311,7 +312,7 @@ async function downloadDrivePdf(entry) {
   const newPages = transparentPageImages.map((imageUrl, pageIndex) => ({
     updatedAt: now,
     title: `${baseTitle} - Page ${pageIndex + 1}`,
-    categoryId: null,
+    categoryId: entry.categoryId ?? null,
     complexity: 'Beginner',
     time: 'TBD',
     tool: 'TBD',
@@ -320,7 +321,7 @@ async function downloadDrivePdf(entry) {
     isFavorite: 0,
     isCompleted: 0,
     progress: 0,
-    isUncategorized: 1,
+    isUncategorized: entry.categoryId ? 0 : 1,
     driveFileId: null,
     tags: [],
     whiteBackgroundProcessed: true,
@@ -336,6 +337,29 @@ async function downloadDrivePdf(entry) {
     await moveFile(entry.id, entry.parentIds || [], processedPdfsId);
   }
   return { pagesAdded: pageImages.length };
+}
+
+/**
+ * Downloads a preview-only library page in full, from the viewer. PDFs are
+ * converted page by page and replace the preview entry; images upgrade the
+ * preview entry to a full page in place. The file type is read from Drive,
+ * since preview entries carry no type flag. Returns { pagesAdded, isPdf }.
+ */
+export async function downloadPreviewPage(page) {
+  if (!isDriveConnected()) throw new Error('Not connected to Google Drive');
+  if (!page.driveFileId) throw new Error('This page is not linked to a Drive file.');
+  const meta = await getFileMetadata(page.driveFileId);
+  const isPdf = meta.mimeType === 'application/pdf' || (meta.name || '').toLowerCase().endsWith('.pdf');
+  const result = await downloadDriveFile({
+    id: page.driveFileId,
+    name: meta.name || page.title,
+    mimeType: meta.mimeType,
+    parentIds: meta.parents || [],
+    isPdf,
+    metadata: null,
+    categoryId: page.categoryId ?? null,
+  });
+  return { ...result, isPdf };
 }
 
 // ---------- Preview-only import ----------
@@ -599,3 +623,4 @@ export async function trashRootFolder() {
     console.log('Could not trash Drive folder:', e.message);
   }
 }
+

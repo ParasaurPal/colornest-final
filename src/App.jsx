@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Heart, Plus, Trash2, Moon, Sun, Menu, Settings, ExternalLink, Tags, Maximize2, Minimize2, Download, Share2, X } from 'lucide-react';
+import { Search, Heart, Plus, Trash2, Moon, Sun, Menu, Settings, ExternalLink, Tags, Maximize2, Minimize2, Download, Share2, X, CheckCircle2 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import AddPageModal from './AddPageModal';
@@ -7,7 +7,7 @@ import SideMenu from './SideMenu';
 import CategorizeModal from './CategorizeModal';
 import SettingsModal from './SettingsModal';
 import Onboarding from './Onboarding';
-import { triggerBackgroundSync, deletePageWithDrive, subscribeScanProgress, fetchTempPreviewUrl } from './driveSync';
+import { triggerBackgroundSync, deletePageWithDrive, subscribeScanProgress, fetchTempPreviewUrl, downloadPreviewPage } from './driveSync';
 import { downloadFile } from './driveService';
 import { tryCreateThumbnail } from './thumbnails';
 import { convertPdfToImages } from './pdfConverter';
@@ -34,6 +34,9 @@ function App() {
   const [tempPreviewUrl, setTempPreviewUrl] = useState(null);
   const [isTempPreviewLoading, setIsTempPreviewLoading] = useState(false);
   const [shareStatus, setShareStatus] = useState('');
+  const [isDownloadingPreview, setIsDownloadingPreview] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState('');
+  const [downloadedPdfPages, setDownloadedPdfPages] = useState(null);
 
   const pages = useLiveQuery(() => db.pages.toArray());
   const categories = useLiveQuery(() => db.categories.toArray());
@@ -198,9 +201,36 @@ function App() {
     }
   };
 
+  // Downloads a preview-only page in full. A PDF is converted to pages and
+  // replaces its preview entry; an image upgrades to a full page in place.
+  const handleDownloadPreview = async (page) => {
+    if (isDownloadingPreview) return;
+    setIsDownloadingPreview(true);
+    setDownloadStatus('Downloading…');
+    try {
+      const result = await downloadPreviewPage(page);
+      if (result.isPdf) {
+        setDownloadedPdfPages(result.pagesAdded);
+        setDownloadStatus('');
+      } else {
+        const fresh = await db.pages.get(page.id);
+        if (fresh) setViewingPage(fresh);
+        setDownloadStatus('Downloaded — this page is now saved on this device.');
+      }
+    } catch (error) {
+      setDownloadStatus('Download failed: ' + (error.message || 'Unknown error'));
+    } finally {
+      setIsDownloadingPreview(false);
+    }
+  };
+
   // Open large/data-URL images inside the app. Sending a huge base64 URL
   // to window.open can crash or force-close mobile browsers.
-  const openExternal = (page) => setViewingPage(page);
+  const openExternal = (page) => {
+    setDownloadStatus('');
+    setDownloadedPdfPages(null);
+    setViewingPage(page);
+  };
 
   // Files shared to ColorNest from another Android app (via the share
   // target) wait in a cache the service worker fills. Import them on open:
@@ -443,13 +473,24 @@ function App() {
             <h2 className="font-semibold text-sm truncate">{viewingPage.title || 'Coloring page'}</h2>
             <div className="flex items-center gap-2 shrink-0">
               {viewingPage.isPreviewOnly === 1 && <span className="text-[10px] font-bold bg-gray-100 dark:bg-white/15 text-gray-800 dark:text-white px-1.5 py-0.5 rounded">Preview only</span>}
+              {viewingPage.isPreviewOnly === 1 && downloadedPdfPages === null && (
+                <button onClick={() => handleDownloadPreview(viewingPage)} disabled={isDownloadingPreview} className="p-2 rounded-full bg-gray-100 dark:bg-white/15 disabled:opacity-50" aria-label="Download this file"><Download size={20} /></button>
+              )}
               <button onClick={() => handleSharePage(viewingPage)} className="p-2 rounded-full bg-gray-100 dark:bg-white/15" aria-label="Share page"><Share2 size={20} /></button>
-              <button onClick={() => { setViewingPage(null); setShareStatus(''); }} className="p-2 rounded-full bg-gray-100 dark:bg-white/15" aria-label="Close page"><X size={22} /></button>
+              <button onClick={() => { setViewingPage(null); setShareStatus(''); setDownloadStatus(''); setDownloadedPdfPages(null); }} className="p-2 rounded-full bg-gray-100 dark:bg-white/15" aria-label="Close page"><X size={22} /></button>
             </div>
           </div>
           {shareStatus && <p className="px-3 pb-2 text-xs text-gray-500 dark:text-gray-300" role="status">{shareStatus}</p>}
+          {downloadStatus && <p className="px-3 pb-2 text-xs text-gray-500 dark:text-gray-300" role="status">{downloadStatus}</p>}
           <div className="flex-1 min-h-0 flex items-center justify-center overflow-auto p-2">
-            {viewingPage.isPreviewOnly === 1 ? (
+            {downloadedPdfPages !== null ? (
+              <div className="text-center px-6">
+                <CheckCircle2 size={40} className="mx-auto text-green-500 mb-3" />
+                <p className="font-bold text-gray-800 dark:text-white">Added {downloadedPdfPages} page{downloadedPdfPages === 1 ? '' : 's'} from this PDF</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">They're in your library now, in the same category as the preview.</p>
+                <button onClick={() => { setViewingPage(null); setShareStatus(''); setDownloadStatus(''); setDownloadedPdfPages(null); }} className="mt-4 bg-purple-600 text-white px-6 py-2 rounded-lg font-bold">Done</button>
+              </div>
+            ) : viewingPage.isPreviewOnly === 1 ? (
               isTempPreviewLoading ? (
                 <p className="text-sm text-gray-500 dark:text-gray-400">Loading preview…</p>
               ) : (tempPreviewUrl || viewingPage.thumbnailUrl) ? (
@@ -490,3 +531,4 @@ function App() {
 }
 
 export default App;
+
