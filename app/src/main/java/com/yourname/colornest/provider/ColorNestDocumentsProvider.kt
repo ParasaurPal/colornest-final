@@ -446,7 +446,9 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
     private fun includePageDocument(cursor: MatrixCursor, page: Page) {
         val file = File(page.imageUrl)
         val mimeType = resolveMimeType(page.imageUrl)
-        val ext = if (mimeType == "image/png") "png" else "jpg"
+        val ext = File(page.imageUrl).extension.lowercase().ifBlank {
+            if (mimeType == "image/png") "png" else "jpg"
+        }
         val cleanBase = page.title.ifBlank { "ColorNest_Page_${page.id}" }
             .replace(Regex("[/\\\\:*?\"<>|]+"), "_")
             .trim()
@@ -490,6 +492,16 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
     }
 
     private fun resolveMimeType(path: String): String {
-        return if (path.endsWith(".png", ignoreCase = true)) "image/png" else "image/jpeg"
+        return when (File(path).extension.lowercase()) {
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            "bmp" -> "image/bmp"
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
+            "avif" -> "image/avif"
+            "jpg", "jpeg", "" -> "image/jpeg"
+            else -> "image/jpeg"
+        }
     }
 }
