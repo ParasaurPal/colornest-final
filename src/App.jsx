@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Heart, Plus, Trash2, Moon, Sun, Menu, Settings, ExternalLink, Tags, Maximize2, Minimize2, Download, Share2, X, CheckCircle2 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
@@ -332,6 +332,103 @@ function App() {
     setActiveTags(tags => tags.filter(tag => tag !== name));
   };
 
+  // Drag-and-drop import: files dropped anywhere on the app are imported
+  // exactly like an upload (images as single pages, PDFs converted page by
+  // page). A counter tracks dragenter/dragleave pairs so the overlay doesn't
+  // flicker while moving between elements.
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [dropStatus, setDropStatus] = useState('');
+  const [isImportingDrop, setIsImportingDrop] = useState(false);
+  const dragCounterRef = useRef(0);
+  const dropStatusTimeoutRef = useRef(null);
+
+  const isFileDrag = (event) => [...(event.dataTransfer?.types || [])].includes('Files');
+
+  const handleDragEnter = (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDraggingFiles(true);
+  };
+
+  const handleDragOver = (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDragLeave = (event) => {
+    if (!isFileDrag(event)) return;
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDraggingFiles(false);
+    }
+  };
+
+  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read ' + file.name));
+    reader.readAsDataURL(file);
+  });
+
+  const importDroppedFiles = async (files) => {
+    const list = [...files];
+    const importable = list.filter((file) =>
+      file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') || file.type.startsWith('image/'));
+    if (dropStatusTimeoutRef.current) {
+      window.clearTimeout(dropStatusTimeoutRef.current);
+      dropStatusTimeoutRef.current = null;
+    }
+    if (importable.length === 0) {
+      setDropStatus('No images or PDFs in what was dropped.');
+      return;
+    }
+    setIsImportingDrop(true);
+    let pagesAdded = 0;
+    let failed = 0;
+    for (let i = 0; i < importable.length; i++) {
+      const file = importable[i];
+      setDropStatus(`Importing ${i + 1} of ${importable.length}: ${file.name}`);
+      try {
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        if (isPdf) {
+          const images = await convertPdfToImages(await file.arrayBuffer());
+          const baseTitle = file.name.replace(/\.pdf$/i, '') || 'Imported PDF';
+          for (let pageIndex = 0; pageIndex < images.length; pageIndex++) {
+            await savePageToDb(images[pageIndex], `${baseTitle} - Page ${pageIndex + 1}`);
+            pagesAdded++;
+          }
+        } else {
+          const dataUrl = await readFileAsDataUrl(file);
+          const title = file.name.includes('.') ? file.name.substring(0, file.name.lastIndexOf('.')) || 'Untitled page' : file.name;
+          await savePageToDb(dataUrl, title);
+          pagesAdded++;
+        }
+      } catch (error) {
+        console.warn(`Could not import ${file.name}:`, error);
+        failed++;
+      }
+    }
+    setIsImportingDrop(false);
+    const skipped = list.length - importable.length;
+    const parts = [`Imported ${pagesAdded} page${pagesAdded === 1 ? '' : 's'}`];
+    if (failed > 0) parts.push(`${failed} file${failed === 1 ? '' : 's'} could not be imported`);
+    if (skipped > 0) parts.push(`${skipped} non-image file${skipped === 1 ? '' : 's'} skipped`);
+    setDropStatus(parts.join('. ') + '.');
+    dropStatusTimeoutRef.current = window.setTimeout(() => setDropStatus(''), 8000);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDraggingFiles(false);
+    if (isImportingDrop) return;
+    const files = event.dataTransfer?.files;
+    if (files && files.length > 0) importDroppedFiles(files);
+  };
+
   const filteredPages = (pages || []).filter(page => {
     if (activeCategoryId !== null) {
       const validIds = getCategoryAndChildren(activeCategoryId, categories || []);
@@ -357,7 +454,13 @@ function App() {
   });
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] dark:bg-[#121212] font-sans pb-10 transition-colors duration-300">
+    <div
+      className="min-h-screen bg-[#F8F9FA] dark:bg-[#121212] font-sans pb-10 transition-colors duration-300"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {showTutorial && <Onboarding onComplete={completeTutorial} />}
       <AddPageModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
       <SideMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} categories={categories || []} activeCategoryId={activeCategoryId} setActiveCategoryId={(id) => { setActiveCategoryId(id); setIsMenuOpen(false); }} onOpenSettings={() => { setIsMenuOpen(false); setIsSettingsOpen(true); }} />
@@ -427,6 +530,9 @@ function App() {
               <div className="h-full rounded-full bg-purple-600 transition-all duration-300" style={{ width: `${scanProgress.percent}%` }} />
             </div>
           </div>
+        )}
+        {dropStatus && (
+          <p className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 truncate" role="status" aria-live="polite">{dropStatus}</p>
         )}
       </header>
 
@@ -523,6 +629,16 @@ function App() {
         </div>
       )}
 
+      {isDraggingFiles && (
+        <div className="fixed inset-0 z-[400] bg-purple-600/20 flex items-center justify-center pointer-events-none p-6">
+          <div className="w-full h-full border-4 border-dashed border-purple-600 rounded-3xl bg-white/80 dark:bg-gray-900/80 flex flex-col items-center justify-center gap-3">
+            <Plus size={48} className="text-purple-600 dark:text-purple-300" />
+            <p className="text-xl font-bold text-gray-800 dark:text-white">Drop to import</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Images and PDFs become coloring pages</p>
+          </div>
+        </div>
+      )}
+
       <button onClick={() => setIsModalOpen(true)} className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-6 w-14 h-14 bg-purple-600 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-105 transition-transform z-40" aria-label="Add coloring pages">
         <Plus size={28} />
       </button>
@@ -531,4 +647,5 @@ function App() {
 }
 
 export default App;
+
 
