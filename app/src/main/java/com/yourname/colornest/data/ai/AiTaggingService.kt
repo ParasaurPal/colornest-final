@@ -130,17 +130,17 @@ object AiTaggingService {
     ): CategorySuggestion = withContext(Dispatchers.IO) {
         require(apiKey.isNotBlank()) { "Add your Gemini API key in Settings first." }
         require(categories.isNotEmpty()) { "Load your default categories before sorting." }
-        val choices = categories.joinToString("\\n") { (id, path) -> "$id = $path" }
-        val examples = learningExamples.takeLast(30).joinToString("\\n")
+        val choices = categories.joinToString("\n") { (id, path) -> "$id = $path" }
+        val examples = learningExamples.takeLast(30).joinToString("\n")
         val prompt = listOf(
             "Organize this coloring page into exactly ONE existing category.",
             "Never invent, rename, or create categories. Select only one supplied category ID.",
             "Use visible image content, filename, existing tags, and category hierarchy. Prefer the most specific suitable child category.",
             "Filename and existing tags: ${fileName?.takeIf { it.isNotBlank() } ?: "Unknown"}",
-            "Existing categories (ID = full hierarchy path):\\n$choices",
-            if (examples.isNotBlank()) "Learn from these user-approved category corrections:\\n$examples" else "No user correction examples are available yet.",
+            "Existing categories (ID = full hierarchy path):\n$choices",
+            if (examples.isNotBlank()) "Learn from these user-approved category corrections:\n$examples" else "No user correction examples are available yet.",
             "Return only JSON: {\\"category_id\\": 123, \\"reason\\": \\"brief explanation\\"}."
-        ).joinToString("\\n")
+        ).joinToString("\n")
         val file = imagePath?.let { File(it) }?.takeIf { it.exists() && it.isFile }
             ?: throw IllegalStateException("This page has no locally stored image to sort.")
         val mime = when (file.extension.lowercase()) { "png" -> "image/png"; "webp" -> "image/webp"; else -> "image/jpeg" }
