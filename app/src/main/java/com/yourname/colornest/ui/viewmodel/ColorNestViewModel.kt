@@ -1080,6 +1080,20 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+
+    fun importSharedImage(uri: Uri, asFinished: Boolean) {
+        viewModelScope.launch {
+            _modalState.update { it.copy(importStatus = if (asFinished) "Adding finished artwork to Showcase…" else "Adding coloring page to your library…") }
+            runCatching { repository.importSharedImage(uri, asFinished) }
+                .onSuccess {
+                    _modalState.update { it.copy(importStatus = if (asFinished) "Finished artwork added to Showcase." else "Coloring page added to your library.") }
+                }
+                .onFailure { error ->
+                    _modalState.update { it.copy(importStatus = "Couldn't add shared image: ${error.message ?: "Unknown error"}") }
+                }
+        }
+    }
+
     fun importSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
