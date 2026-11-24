@@ -118,6 +118,8 @@ fun HomeScreen(
     var isTagBrowserOpen by remember { mutableStateOf(false) }
     var isManagingTags by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
+    var showShowcase by remember { mutableStateOf(false) }
+    val visiblePages = if (showShowcase) uiState.pages.filter { it.isCompleted && !it.isPreviewOnly } else uiState.filteredPages
 
     var showCreateTagDialog by remember { mutableStateOf(false) }
     var newTagInput by remember { mutableStateOf("") }
@@ -126,6 +128,8 @@ fun HomeScreen(
     var renamingTag by remember { mutableStateOf<String?>(null) }
     var renameTagInput by remember { mutableStateOf("") }
     var deletingTag by remember { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = showShowcase) { showShowcase = false }
 
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -297,6 +301,31 @@ fun HomeScreen(
                         .testTag("fab_add_page")
                 ) {
                     Icon(imageVector = Icons.Default.Add, contentDescription = "Add Pages", modifier = Modifier.size(28.dp))
+                }
+            },
+
+            bottomBar = {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showShowcase = !showShowcase }
+                            .padding(horizontal = 20.dp, vertical = 13.dp)
+                            .testTag("showcase_banner"),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (showShowcase) "← Back to coloring pages" else "✦  Showcase  ·  ${uiState.pages.count { it.isCompleted && !it.isPreviewOnly }} finished pages",
+                            color = PurplePrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
                 }
             },
             modifier = modifier.testTag("home_screen")
@@ -646,7 +675,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${uiState.filteredPages.size} page${if (uiState.filteredPages.size == 1) "" else "s"}",
+                        text = if (showShowcase) "${visiblePages.size} finished page${if (visiblePages.size == 1) "" else "s"} · Showcase" else "${visiblePages.size} page${if (visiblePages.size == 1) "" else "s"}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -710,7 +739,7 @@ fun HomeScreen(
                         ) {
                             val hasFilter = activeFilterCount > 0
                             Text(
-                                text = if (hasFilter) "No coloring pages found" else "No pages yet",
+                                text = if (showShowcase) "Your Showcase is ready" else if (hasFilter) "No coloring pages found" else "No pages yet",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -718,6 +747,7 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = when {
+                                    showShowcase -> "Mark a page as Completed in its edit details to feature it here."
                                     uiState.showNoTagsOnly ->
                                         "Every page in this view already has at least one tag."
                                     uiState.activeTags.isNotEmpty() ->
@@ -753,7 +783,7 @@ fun HomeScreen(
                                 .fillMaxSize()
                                 .testTag("pages_grid")
                         ) {
-                            items(uiState.filteredPages, key = { it.id }) { page ->
+                            items(visiblePages, key = { it.id }) { page ->
                                 PageCard(
                                     page = page,
                                     isDarkMode = uiState.isDarkMode,
