@@ -117,8 +117,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        if (uris.size == 1 && intent.type?.startsWith("image/") == true) {
-            incomingSharedImage.value = uris.first()
+        val singleImageUri = uris.firstOrNull()?.takeIf { uris.size == 1 }
+        val isSingleImage = singleImageUri != null && (
+            intent.type?.startsWith("image/") == true ||
+                contentResolver.getType(singleImageUri)?.startsWith("image/") == true
+            )
+        if (isSingleImage) {
+            incomingSharedImage.value = singleImageUri
         } else if (uris.isNotEmpty()) {
             viewModel.importSharedUris(uris.toList())
         }
