@@ -604,7 +604,7 @@ fun SettingsDialog(
                             onCheckedChange = onToggleAiAutoTag,
                             colors = CheckboxDefaults.colors(checkedColor = PurplePrimary)
                         )
-                        Text("Automatically tag new uploads", fontSize = 12.sp)
+                        Text("Automatically tag & sort new uploads", fontSize = 12.sp)
                     }
 
                     Row(
