@@ -2,6 +2,7 @@ package com.yourname.colornest.ui.viewmodel
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yourname.colornest.data.drive.DriveBrowserEntry
@@ -12,7 +13,9 @@ import com.yourname.colornest.data.model.TagEntity
 import com.yourname.colornest.data.processing.DuplicateGroup
 import com.yourname.colornest.data.processing.ImageProcessor
 import com.yourname.colornest.data.repository.ColorNestRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -94,12 +97,12 @@ data class SettingsExtraUiState(
     val driveScanOnOpen: Boolean = true,
     val isSyncingDrive: Boolean = false,
     val driveStatus: String = "",
-    val geminiApiKey: String = "",
     val aiAutoTagUploads: Boolean = false,
     val isAiTagging: Boolean = false,
     val aiTagDone: Int = 0,
     val aiTagTotal: Int = 0,
     val aiTagStatus: String = "",
+    val aiTagIsError: Boolean = false,
     val pendingAiSuggestions: List<PendingAiSuggestion>? = null
 )
 
@@ -200,12 +203,10 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
                 _modalState.update { it.copy(isDarkMode = true) }
             }
             val fullImages = repository.getSetting("galleryFullImages") == "true"
-            val geminiKey = repository.getSetting("geminiApiKey").orEmpty()
             val autoTag = repository.getSetting("aiAutoTagUploads") == "true"
             _settingsExtra.update {
                 it.copy(
                     galleryFullImages = fullImages,
-                    geminiApiKey = geminiKey,
                     aiAutoTagUploads = autoTag
                 )
             }
@@ -871,29 +872,6 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
 
     // ---------- AI Subject Tagging ----------
 
-    fun updateGeminiApiKeyInput(key: String) {
-        _settingsExtra.update { it.copy(geminiApiKey = key) }
-    }
-
-    fun saveGeminiSettings() {
-        val key = _settingsExtra.value.geminiApiKey.trim()
-        val autoTag = _settingsExtra.value.aiAutoTagUploads
-        viewModelScope.launch {
-            if (key.isNotEmpty()) repository.setSetting("geminiApiKey", key)
-            else repository.deleteSetting("geminiApiKey")
-            repository.setSetting("aiAutoTagUploads", autoTag.toString())
-            _settingsExtra.update {
-                it.copy(
-                    aiTagStatus = if (key.isNotEmpty()) {
-                        "Gemini settings saved on this device."
-                    } else {
-                        "Gemini API key removed."
-                    }
-                )
-            }
-        }
-    }
-
     fun toggleAiAutoTag(enabled: Boolean) {
         _settingsExtra.update { it.copy(aiAutoTagUploads = enabled) }
         viewModelScope.launch {
@@ -914,16 +892,16 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun scanLibraryWithAi() {
         if (_settingsExtra.value.isAiTagging) return
-        val key = _settingsExtra.value.geminiApiKey.trim()
-        if (key.isEmpty()) {
-            _settingsExtra.update { it.copy(aiTagStatus = "Add and save your Gemini API key first.") }
-            return
-        }
 
         viewModelScope.launch {
             val allCategories = repository.categoryDao.getAllCategories()
             if (allCategories.isEmpty()) {
-                _settingsExtra.update { it.copy(aiTagStatus = "Load your default category tree before running AI sorting.") }
+                _settingsExtra.update {
+                    it.copy(
+                        aiTagIsError = true,
+                        aiTagStatus = "Load your default category tree before running AI sorting."
+                    )
+                }
                 return@launch
             }
             val learning = runCatching { org.json.JSONArray(repository.getSetting("aiCategoryLearning").orEmpty()) }
@@ -935,7 +913,10 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             }
             if (pending.isEmpty()) {
                 _settingsExtra.update {
-                    it.copy(aiTagStatus = "All locally available images have already been AI-scanned.")
+                    it.copy(
+                        aiTagIsError = false,
+                        aiTagStatus = "All locally available images have already been AI-scanned."
+                    )
                 }
                 return@launch
             }
@@ -945,23 +926,33 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
                     isAiTagging = true,
                     aiTagDone = 0,
                     aiTagTotal = pending.size,
+                    aiTagIsError = false,
                     aiTagStatus = "Scanning your library…"
                 )
             }
 
             val suggestions = mutableListOf<PendingAiSuggestion>()
             var failed = 0
+            var lastError: String? = null
             for ((index, page) in pending.withIndex()) {
                 _settingsExtra.update {
                     it.copy(aiTagStatus = "Scanning ${index + 1} of ${pending.size}: ${page.title.ifBlank { "Untitled" }}")
                 }
                 try {
-                    val tags = if (page.aiScannedAt == null) repository.suggestTagsForPage(page, key) else page.aiSuggestedTags
-                    val category = repository.suggestCategoryForPage(page, key, allCategories, learning)
+                    val tags = if (page.aiScannedAt == null) repository.suggestTagsForPage(page) else page.aiSuggestedTags
+                    val category = repository.suggestCategoryForPage(page, allCategories, learning)
                     val categoryName = buildCategoryPath(category.categoryId, allCategories)
                     suggestions.add(PendingAiSuggestion(page, tags, category.categoryId, categoryName, category.reason))
-                } catch (_: Exception) {
+                } catch (e: TimeoutCancellationException) {
                     failed++
+                    lastError = "Request timed out after 60 seconds."
+                    Log.e("ColorNestViewModel", "AI scan timed out for page ${page.id}", e)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed++
+                    lastError = e.localizedMessage ?: "Gemini inference failed."
+                    Log.e("ColorNestViewModel", "AI scan failed for page ${page.id}", e)
                 }
                 _settingsExtra.update { it.copy(aiTagDone = index + 1) }
             }
@@ -971,14 +962,16 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
                     it.copy(
                         isAiTagging = false,
                         pendingAiSuggestions = suggestions,
-                        aiTagStatus = "Ready to review ${suggestions.size} suggestions.${if (failed > 0) " $failed failed." else ""}"
+                        aiTagIsError = false,
+                        aiTagStatus = "Ready to review ${suggestions.size} suggestions.${if (failed > 0) " $failed failed${lastError?.let { err -> " ($err)" } ?: "."}" else ""}"
                     )
                 }
             } else {
                 _settingsExtra.update {
                     it.copy(
                         isAiTagging = false,
-                        aiTagStatus = "No suggestions were generated. $failed files failed to scan; check your connection and API key, then retry."
+                        aiTagIsError = true,
+                        aiTagStatus = "Scan failed for $failed file(s): ${lastError ?: "Unable to reach Gemini."}"
                     )
                 }
             }
@@ -994,6 +987,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             _settingsExtra.update {
                 it.copy(
                     pendingAiSuggestions = null,
+                    aiTagIsError = false,
                     aiTagStatus = "Applied AI tags and category assignments to ${suggestions.size} files."
                 )
             }
@@ -1005,6 +999,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         _settingsExtra.update {
             it.copy(
                 pendingAiSuggestions = null,
+                aiTagIsError = false,
                 aiTagStatus = "Scanned $count files. No tags were changed; run the scan again whenever you are ready to apply them."
             )
         }

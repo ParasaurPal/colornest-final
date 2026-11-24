@@ -963,8 +963,6 @@ fun HomeScreen(
         onDisconnectDrive = { viewModel.disconnectDrive() },
         onSetDriveScanOnOpen = { viewModel.setDriveScanOnOpen(it) },
         onRefreshDriveSettings = { viewModel.refreshDriveSettings() },
-        onUpdateGeminiKey = { viewModel.updateGeminiApiKeyInput(it) },
-        onSaveGeminiSettings = { viewModel.saveGeminiSettings() },
         onToggleAiAutoTag = { viewModel.toggleAiAutoTag(it) },
         onScanLibraryWithAi = { viewModel.scanLibraryWithAi() },
         onConfirmApplyAiSuggestions = { viewModel.confirmApplyAiSuggestions() },

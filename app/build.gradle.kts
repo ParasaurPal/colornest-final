@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("org.jetbrains.kotlin.kapt")
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -125,4 +126,10 @@ dependencies {
         exclude(group = "com.google.http-client", module = "google-http-client-apache-v2")
         exclude(group = "commons-logging", module = "commons-logging")
     }
+
+    // Firebase AI Logic & App Check
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.ai)
+    implementation(libs.firebase.appcheck.recaptcha)
+    implementation(libs.firebase.appcheck.debug)
 }

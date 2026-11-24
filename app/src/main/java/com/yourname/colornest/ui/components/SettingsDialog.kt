@@ -65,8 +65,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -104,8 +102,6 @@ fun SettingsDialog(
     onDisconnectDrive: () -> Unit,
     onSetDriveScanOnOpen: (Boolean) -> Unit,
     onRefreshDriveSettings: () -> Unit,
-    onUpdateGeminiKey: (String) -> Unit,
-    onSaveGeminiSettings: () -> Unit,
     onToggleAiAutoTag: (Boolean) -> Unit,
     onScanLibraryWithAi: () -> Unit,
     onConfirmApplyAiSuggestions: () -> Unit,
@@ -120,7 +116,6 @@ fun SettingsDialog(
     if (!isOpen) return
     val context = LocalContext.current
     var showFullAppGuide by remember { mutableStateOf(false) }
-    var showGeminiKey by remember { mutableStateOf(false) }
     var showClearTagsConfirm by remember { mutableStateOf(false) }
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -573,31 +568,19 @@ fun SettingsDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, tint = PurplePrimary, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("AI Subject Tagging & Category Sorting (Optional)", fontWeight = FontWeight.Bold, color = PurplePrimary, fontSize = 15.sp)
+                        Text("AI Subject Tagging & Category Sorting", fontWeight = FontWeight.Bold, color = PurplePrimary, fontSize = 15.sp)
                     }
                     Text(
                         "Gemini identifies subjects, adds descriptive tags, and assigns pages to the best matching category already in your category tree. It learns from category corrections you make to AI-tagged pages. Suggestions are reviewed before they are applied.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedTextField(
-                        value = extra.geminiApiKey,
-                        onValueChange = onUpdateGeminiKey,
-                        label = { Text("Gemini API Key") },
-                        singleLine = true,
-                        visualTransformation = if (showGeminiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            TextButton(onClick = { showGeminiKey = !showGeminiKey }) {
-                                Text(if (showGeminiKey) "Hide" else "Show", fontSize = 11.sp)
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("gemini_api_key_input")
-                    )
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleAiAutoTag(!extra.aiAutoTagUploads) }
                     ) {
                         Checkbox(
                             checked = extra.aiAutoTagUploads,
@@ -607,30 +590,18 @@ fun SettingsDialog(
                         Text("Automatically tag & sort new uploads", fontSize = 12.sp)
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Button(
+                        onClick = onScanLibraryWithAi,
+                        enabled = !extra.isAiTagging,
+                        colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("scan_ai_tags_button")
                     ) {
-                        OutlinedButton(
-                            onClick = onSaveGeminiSettings,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f).testTag("save_gemini_settings_button")
-                        ) {
-                            Text("Save Key", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Button(
-                            onClick = onScanLibraryWithAi,
-                            enabled = !extra.isAiTagging && extra.geminiApiKey.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f).testTag("scan_ai_tags_button")
-                        ) {
-                            Text(
-                                text = if (extra.isAiTagging) "Scanning…" else "Scan Library",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text(
+                            text = if (extra.isAiTagging) "Scanning…" else "Scan Library with Gemini",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
                     if (extra.isAiTagging) {
@@ -646,7 +617,7 @@ fun SettingsDialog(
                         Text(
                             text = extra.aiTagStatus,
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (extra.aiTagIsError) AccentRed else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
