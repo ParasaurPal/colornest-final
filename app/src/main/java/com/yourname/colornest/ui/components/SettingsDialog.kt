@@ -573,10 +573,10 @@ fun SettingsDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, tint = PurplePrimary, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("AI Subject Tagging (Optional)", fontWeight = FontWeight.Bold, color = PurplePrimary, fontSize = 15.sp)
+                        Text("AI Subject Tagging & Category Sorting (Optional)", fontWeight = FontWeight.Bold, color = PurplePrimary, fontSize = 15.sp)
                     }
                     Text(
-                        "Enter your own Gemini API key (kept only on this device) to automatically suggest subject tags for uploaded coloring pages.",
+                        "Gemini identifies subjects, adds descriptive tags, and assigns pages to the best matching category already in your category tree. It learns from category corrections you make to AI-tagged pages. Suggestions are reviewed before they are applied.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -752,7 +752,7 @@ fun SettingsDialog(
             text = {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Review the suggested tags below before adding them to your pages:",
+                        text = "Review the suggested category and tags below. Pages are only assigned to categories that already exist:",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -779,7 +779,14 @@ fun SettingsDialog(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = if (item.tags.isEmpty()) "No suggestions" else item.tags.joinToString(", "),
+                                    text = "Category: ${item.categoryPath}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = PurplePrimary
+                                )
+                                Text(item.reason, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    text = if (item.tags.isEmpty()) "No new tags" else "Tags: ${item.tags.joinToString(", ")}",
                                     fontSize = 12.sp,
                                     color = PurplePrimary
                                 )
@@ -794,7 +801,7 @@ fun SettingsDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
                     modifier = Modifier.testTag("apply_ai_suggestions_button")
                 ) {
-                    Text("Apply All Tags", fontWeight = FontWeight.Bold)
+                    Text("Apply Tags & Sort", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
