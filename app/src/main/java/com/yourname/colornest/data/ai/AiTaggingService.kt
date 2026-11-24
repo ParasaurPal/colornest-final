@@ -139,7 +139,7 @@ object AiTaggingService {
             "Filename and existing tags: ${fileName?.takeIf { it.isNotBlank() } ?: "Unknown"}",
             "Existing categories (ID = full hierarchy path):\n$choices",
             if (examples.isNotBlank()) "Learn from these user-approved category corrections:\n$examples" else "No user correction examples are available yet.",
-            "Return only JSON: {\\"category_id\\": 123, \\"reason\\": \\"brief explanation\\"}."
+            "Return a JSON object with category_id as a number and reason as a short string.",
         ).joinToString("\n")
         val file = imagePath?.let { File(it) }?.takeIf { it.exists() && it.isFile }
             ?: throw IllegalStateException("This page has no locally stored image to sort.")
