@@ -38,7 +38,10 @@ enum class SortOption(val label: String) {
 
 data class PendingAiSuggestion(
     val page: Page,
-    val tags: List<String>
+    val tags: List<String>,
+    val categoryId: Long,
+    val categoryPath: String,
+    val reason: String
 )
 
 data class ViewerUiState(
@@ -907,10 +910,17 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         viewModelScope.launch {
+            val allCategories = repository.categoryDao.getAllCategories()
+            if (allCategories.isEmpty()) {
+                _settingsExtra.update { it.copy(aiTagStatus = "Load your default category tree before running AI sorting.") }
+                return@launch
+            }
+            val learning = runCatching { org.json.JSONArray(repository.getSetting("aiCategoryLearning").orEmpty()) }
+                .getOrNull()?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
             val pending = repository.pageDao.getAllPages().filter { page ->
                 val hasImage = (page.imageUrl.isNotBlank() && File(page.imageUrl).exists()) ||
                     (!page.thumbnailUrl.isNullOrBlank() && File(page.thumbnailUrl).exists())
-                hasImage && page.aiScannedAt == null
+                hasImage && (page.aiScannedAt == null || page.categoryId == null)
             }
             if (pending.isEmpty()) {
                 _settingsExtra.update {
@@ -935,8 +945,10 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
                     it.copy(aiTagStatus = "Scanning ${index + 1} of ${pending.size}: ${page.title.ifBlank { "Untitled" }}")
                 }
                 try {
-                    val tags = repository.suggestTagsForPage(page, key)
-                    suggestions.add(PendingAiSuggestion(page = page, tags = tags))
+                    val tags = if (page.aiScannedAt == null) repository.suggestTagsForPage(page, key) else page.aiSuggestedTags
+                    val category = repository.suggestCategoryForPage(page, key, allCategories, learning)
+                    val categoryName = allCategories.firstOrNull { it.id == category.categoryId }?.name ?: "Category"
+                    suggestions.add(PendingAiSuggestion(page, tags, category.categoryId, categoryName, category.reason))
                 } catch (_: Exception) {
                     failed++
                 }
@@ -967,11 +979,17 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             for (item in suggestions) {
                 repository.applyAiTagSuggestions(item.page, item.tags)
+                val current = repository.pageDao.getPageById(item.page.id) ?: continue
+                repository.pageDao.updatePage(current.copy(
+                    categoryId = item.categoryId,
+                    isUncategorized = false,
+                    updatedAt = System.currentTimeMillis()
+                ))
             }
             _settingsExtra.update {
                 it.copy(
                     pendingAiSuggestions = null,
-                    aiTagStatus = "Applied AI tags to ${suggestions.size} files."
+                    aiTagStatus = "Applied AI tags and category assignments to ${suggestions.size} files."
                 )
             }
         }
