@@ -31,6 +31,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.OpenInNew
@@ -43,6 +46,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,8 +76,10 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.yourname.colornest.data.model.Page
+import com.yourname.colornest.ui.theme.AccentGreen
 import com.yourname.colornest.ui.theme.AccentPink
 import com.yourname.colornest.ui.theme.PurplePrimary
+import kotlinx.coroutines.launch
 import java.io.File
 
 private const val FILE_PROVIDER_AUTHORITY = "com.yourname.colornest.fileprovider"
@@ -88,29 +95,41 @@ private val CLIP_STUDIO_PACKAGES = listOf(
 fun PageCard(
     page: Page,
     isDarkMode: Boolean,
+    galleryFullImages: Boolean = false,
+    onViewPage: () -> Unit = {},
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
     onEditDetails: () -> Unit,
     selectedTag: String? = null,
+    activeTags: Set<String> = emptySet(),
     onTagClick: (String) -> Unit = {},
+    onDownloadDriveCache: (suspend (Page) -> File?)? = null,
+    onDownloadFullPage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var showShareDialog by remember { mutableStateOf(false) }
 
-    // Invert line colors in dark mode:
-    // [ -1, 0, 0, 0, 255 ]
-    // [ 0, -1, 0, 0, 255 ]
-    // [ 0, 0, -1, 0, 255 ]
-    // [ 0, 0, 0, 1, 0 ]
-    val invertMatrix = ColorMatrix(
-        floatArrayOf(
-            -1f, 0f, 0f, 0f, 255f,
-            0f, -1f, 0f, 0f, 255f,
-            0f, 0f, -1f, 0f, 255f,
-            0f, 0f, 0f, 1f, 0f
+    val invertMatrix = remember {
+        ColorMatrix(
+            floatArrayOf(
+                -1f, 0f, 0f, 0f, 255f,
+                0f, -1f, 0f, 0f, 255f,
+                0f, 0f, -1f, 0f, 255f,
+                0f, 0f, 0f, 1f, 0f
+            )
         )
-    )
+    }
+
+    val displayFile = remember(page.imageUrl, page.thumbnailUrl, galleryFullImages) {
+        val full = page.imageUrl.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
+        val thumb = page.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
+        if (galleryFullImages) {
+            full ?: thumb
+        } else {
+            thumb ?: full
+        }
+    }
 
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -128,24 +147,85 @@ fun PageCard(
             .testTag("page_card_${page.id}")
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            // Image Box
+            // Image Box (click opens fullscreen in-app viewer)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(160.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .background(if (isDarkMode) Color(0xFF18181B) else Color(0xFFF4F4F5))
+                    .clickable { onViewPage() }
+                    .testTag("page_image_${page.id}")
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(File(page.imageUrl))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = page.title.ifBlank { "Coloring page" },
-                    contentScale = ContentScale.Crop,
-                    colorFilter = if (isDarkMode) ColorFilter.colorMatrix(invertMatrix) else null,
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (displayFile != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(displayFile)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = page.title.ifBlank { "Coloring page" },
+                        contentScale = ContentScale.Crop,
+                        colorFilter = if (isDarkMode) ColorFilter.colorMatrix(invertMatrix) else null,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = "Drive preview",
+                            tint = PurplePrimary.copy(alpha = 0.5f),
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+
+                // Badges on top-start (Preview / Completed)
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (page.isPreviewOnly) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(PurplePrimary.copy(alpha = 0.9f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "Preview",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    if (page.isCompleted) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(AccentGreen.copy(alpha = 0.9f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Completed",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "Done",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // Favorite Button
                 IconButton(
@@ -254,7 +334,8 @@ fun PageCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     page.tags.forEach { tag ->
-                        val isSelectedTag = selectedTag != null && tag.trim().equals(selectedTag, ignoreCase = true)
+                        val isSelectedTag = (selectedTag != null && tag.trim().equals(selectedTag, ignoreCase = true)) ||
+                            activeTags.any { it.equals(tag.trim(), ignoreCase = true) }
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -278,7 +359,7 @@ fun PageCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Open as New Image & Share buttons
+            // Open / View & Share buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -289,21 +370,27 @@ fun PageCard(
                         .weight(1f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(PurplePrimary.copy(alpha = if (isDarkMode) 0.25f else 0.1f))
-                        .clickable { openAsNewImage(context, page) }
+                        .clickable {
+                            if (page.isPreviewOnly) {
+                                onViewPage()
+                            } else {
+                                openAsNewImage(context, page.imageUrl, page.title)
+                            }
+                        }
                         .padding(vertical = 10.dp, horizontal = 8.dp)
                         .testTag("open_page_button_${page.id}"),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.OpenInNew,
+                        imageVector = if (page.isPreviewOnly) Icons.Default.CloudDownload else Icons.Default.OpenInNew,
                         contentDescription = null,
                         tint = PurplePrimary,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Open",
+                        text = if (page.isPreviewOnly) "Preview" else "Open",
                         color = PurplePrimary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -343,19 +430,31 @@ fun PageCard(
     if (showShareDialog) {
         SharePageDialog(
             page = page,
+            onDownloadDriveCache = onDownloadDriveCache,
+            onDownloadFullPage = onDownloadFullPage,
             onDismiss = { showShareDialog = false }
         )
     }
 }
 
 @Composable
-private fun SharePageDialog(
+fun SharePageDialog(
     page: Page,
+    onDownloadDriveCache: (suspend (Page) -> File?)? = null,
+    onDownloadFullPage: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val mimeType = remember(page.imageUrl) { resolveImageMimeType(page.imageUrl) }
-    val suggestedName = remember(page.title, page.imageUrl) {
+    val scope = rememberCoroutineScope()
+    var isFetchingDriveFile by remember { mutableStateOf(false) }
+    var cachedFileForSave by remember { mutableStateOf<File?>(null) }
+
+    val localFile = remember(page.imageUrl) {
+        page.imageUrl.takeIf { it.isNotBlank() }?.let { File(it) }?.takeIf { it.exists() }
+    }
+    val initialPath = localFile?.absolutePath ?: "page.png"
+    val mimeType = remember(initialPath) { resolveImageMimeType(initialPath) }
+    val suggestedName = remember(page.title, initialPath) {
         val ext = if (mimeType == "image/png") "png" else "jpg"
         val cleanBase = page.title.ifBlank { "ColorNest_Page_${page.id}" }
             .replace(Regex("[^A-Za-z0-9._-]+"), "_")
@@ -369,8 +468,9 @@ private fun SharePageDialog(
     val saveDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument(mimeType)
     ) { destinationUri ->
+        val sourcePath = cachedFileForSave?.absolutePath ?: page.imageUrl
         if (destinationUri != null) {
-            val ok = copyLocalFileToUri(context, page.imageUrl, destinationUri)
+            val ok = copyLocalFileToUri(context, sourcePath, destinationUri)
             if (ok) {
                 if (launchCspAfterSave) {
                     launchCspAfterSave = false
@@ -394,8 +494,35 @@ private fun SharePageDialog(
         }
     }
 
+    fun withReadyImageFile(action: (File) -> Unit) {
+        if (localFile != null) {
+            action(localFile)
+            return
+        }
+        val fetcher = onDownloadDriveCache
+        if (fetcher == null) {
+            Toast.makeText(context, "Download the full image first from Preview.", Toast.LENGTH_LONG).show()
+            return
+        }
+        scope.launch {
+            isFetchingDriveFile = true
+            val file = runCatching { fetcher(page) }.getOrNull()
+            isFetchingDriveFile = false
+            if (file != null && file.exists()) {
+                cachedFileForSave = file
+                action(file)
+            } else {
+                Toast.makeText(
+                    context,
+                    "Could not fetch file from Google Drive. Try downloading the full page in the viewer.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isFetchingDriveFile) onDismiss() },
         title = {
             Text(
                 text = "Open or Share Page",
@@ -410,19 +537,54 @@ private fun SharePageDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                if (page.isPreviewOnly && localFile == null && onDownloadFullPage != null) {
+                    OutlinedButton(
+                        onClick = {
+                            onDownloadFullPage()
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("share_download_full_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Download Full Page to Device", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                if (isFetchingDriveFile) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    ) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Fetching full image from Drive…", fontSize = 12.sp)
+                    }
+                }
+
                 Button(
                     onClick = {
-                        val launched = openInClipStudioAsNewImage(
-                            context = context,
-                            page = page,
-                            suggestedName = suggestedName,
-                            onNeedLegacySafSave = {
-                                launchCspAfterSave = true
-                                saveDocumentLauncher.launch(suggestedName)
-                            }
-                        )
-                        if (launched) onDismiss()
+                        withReadyImageFile { file ->
+                            val launched = openInClipStudioAsNewImage(
+                                context = context,
+                                imagePath = file.absolutePath,
+                                title = page.title,
+                                suggestedName = suggestedName,
+                                onNeedLegacySafSave = {
+                                    launchCspAfterSave = true
+                                    saveDocumentLauncher.launch(suggestedName)
+                                }
+                            )
+                            if (launched) onDismiss()
+                        }
                     },
+                    enabled = !isFetchingDriveFile,
                     colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -440,9 +602,12 @@ private fun SharePageDialog(
 
                 OutlinedButton(
                     onClick = {
-                        openAsNewImage(context, page)
-                        onDismiss()
+                        withReadyImageFile { file ->
+                            openAsNewImage(context, file.absolutePath, page.title)
+                            onDismiss()
+                        }
                     },
+                    enabled = !isFetchingDriveFile,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -459,9 +624,12 @@ private fun SharePageDialog(
 
                 OutlinedButton(
                     onClick = {
-                        openForEditInApp(context, page)
-                        onDismiss()
+                        withReadyImageFile { file ->
+                            openForEditInApp(context, file.absolutePath, page.title)
+                            onDismiss()
+                        }
                     },
+                    enabled = !isFetchingDriveFile,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -478,20 +646,24 @@ private fun SharePageDialog(
 
                 OutlinedButton(
                     onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            val saved = saveToPicturesGallery(context, page.imageUrl, suggestedName, mimeType)
-                            Toast.makeText(
-                                context,
-                                if (saved != null) "Saved to Pictures/ColorNest ($suggestedName)"
-                                else "Could not save copy to Pictures.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            if (saved != null) onDismiss()
-                        } else {
-                            launchCspAfterSave = false
-                            saveDocumentLauncher.launch(suggestedName)
+                        withReadyImageFile { file ->
+                            val resolvedMime = resolveImageMimeType(file.absolutePath)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                val saved = saveToPicturesGallery(context, file.absolutePath, suggestedName, resolvedMime)
+                                Toast.makeText(
+                                    context,
+                                    if (saved != null) "Saved to Pictures/ColorNest ($suggestedName)"
+                                    else "Could not save copy to Pictures.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                if (saved != null) onDismiss()
+                            } else {
+                                launchCspAfterSave = false
+                                saveDocumentLauncher.launch(suggestedName)
+                            }
                         }
                     },
+                    enabled = !isFetchingDriveFile,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -508,9 +680,12 @@ private fun SharePageDialog(
 
                 OutlinedButton(
                     onClick = {
-                        shareViaSystemSheet(context, page)
-                        onDismiss()
+                        withReadyImageFile { file ->
+                            shareViaSystemSheet(context, file.absolutePath, page.title)
+                            onDismiss()
+                        }
                     },
+                    enabled = !isFetchingDriveFile,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -527,7 +702,7 @@ private fun SharePageDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !isFetchingDriveFile) {
                 Text("Close")
             }
         }
@@ -602,7 +777,8 @@ private fun launchClipStudioPaintHome(context: Context): Boolean {
 
 private fun openInClipStudioAsNewImage(
     context: Context,
-    page: Page,
+    imagePath: String,
+    title: String,
     suggestedName: String,
     onNeedLegacySafSave: () -> Unit
 ): Boolean {
@@ -616,13 +792,12 @@ private fun openInClipStudioAsNewImage(
         return false
     }
 
-    val (uri, mimeType) = buildPageUri(context, page.imageUrl) ?: run {
+    val (uri, mimeType) = buildPageUri(context, imagePath) ?: run {
         Toast.makeText(context, "Image file not found.", Toast.LENGTH_SHORT).show()
         return false
     }
-    val label = page.title.ifBlank { "Coloring Page" }
+    val label = title.ifBlank { "Coloring Page" }
 
-    // 1. Prefer ACTION_VIEW / ACTION_EDIT with data URI (opens as a new image instead of a layer)
     val viewIntent = buildViewOrEditIntent(context, Intent.ACTION_VIEW, uri, mimeType, label, pkg)
     if (canResolveIntent(context, viewIntent)) {
         runCatching {
@@ -639,10 +814,8 @@ private fun openInClipStudioAsNewImage(
         }
     }
 
-    // 2. If this CSP build does not register VIEW/EDIT for content:// images (only SEND, which adds a layer),
-    // save a copy into Pictures/ColorNest so the user can open it as a brand-new canvas via Create from image.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        val savedUri = saveToPicturesGallery(context, page.imageUrl, suggestedName, mimeType)
+        val savedUri = saveToPicturesGallery(context, imagePath, suggestedName, mimeType)
         if (savedUri != null) {
             Toast.makeText(
                 context,
@@ -660,9 +833,9 @@ private fun openInClipStudioAsNewImage(
     }
 }
 
-private fun openAsNewImage(context: Context, page: Page) {
-    val (uri, mimeType) = buildPageUri(context, page.imageUrl) ?: return
-    val label = page.title.ifBlank { "Coloring Page" }
+private fun openAsNewImage(context: Context, imagePath: String, title: String) {
+    val (uri, mimeType) = buildPageUri(context, imagePath) ?: return
+    val label = title.ifBlank { "Coloring Page" }
 
     val viewIntent = buildViewOrEditIntent(context, Intent.ACTION_VIEW, uri, mimeType, label)
     if (canResolveIntent(context, viewIntent)) {
@@ -684,12 +857,12 @@ private fun openAsNewImage(context: Context, page: Page) {
         }
     }
 
-    shareViaSystemSheet(context, page)
+    shareViaSystemSheet(context, imagePath, title)
 }
 
-private fun openForEditInApp(context: Context, page: Page) {
-    val (uri, mimeType) = buildPageUri(context, page.imageUrl) ?: return
-    val label = page.title.ifBlank { "Coloring Page" }
+private fun openForEditInApp(context: Context, imagePath: String, title: String) {
+    val (uri, mimeType) = buildPageUri(context, imagePath) ?: return
+    val label = title.ifBlank { "Coloring Page" }
     val editIntent = buildViewOrEditIntent(context, Intent.ACTION_EDIT, uri, mimeType, label)
     if (canResolveIntent(context, editIntent)) {
         runCatching {
@@ -706,9 +879,9 @@ private fun openForEditInApp(context: Context, page: Page) {
     ).show()
 }
 
-private fun shareViaSystemSheet(context: Context, page: Page) {
-    val (uri, mimeType) = buildPageUri(context, page.imageUrl) ?: return
-    val label = page.title.ifBlank { "Coloring Page" }
+private fun shareViaSystemSheet(context: Context, imagePath: String, title: String) {
+    val (uri, mimeType) = buildPageUri(context, imagePath) ?: return
+    val label = title.ifBlank { "Coloring Page" }
     val sendIntent = Intent(Intent.ACTION_SEND).apply {
         type = mimeType
         putExtra(Intent.EXTRA_STREAM, uri)

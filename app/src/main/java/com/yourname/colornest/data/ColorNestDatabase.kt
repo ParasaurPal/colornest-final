@@ -4,22 +4,24 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.migration.Migration
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.yourname.colornest.data.dao.CategoryDao
 import com.yourname.colornest.data.dao.PageDao
 import com.yourname.colornest.data.dao.SettingDao
+import com.yourname.colornest.data.dao.TagDao
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.data.model.Setting
+import com.yourname.colornest.data.model.TagEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Database(
-    entities = [Page::class, Category::class, Setting::class],
-    version = 3,
+    entities = [Page::class, Category::class, Setting::class, TagEntity::class],
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -27,13 +29,9 @@ abstract class ColorNestDatabase : RoomDatabase() {
     abstract fun pageDao(): PageDao
     abstract fun categoryDao(): CategoryDao
     abstract fun settingDao(): SettingDao
+    abstract fun tagDao(): TagDao
 
     companion object {
-        /**
-         * Version 1 contained the removed AI-only LearnedPattern table and
-         * temporary AI fields on pages. Preserve user-created page data while
-         * removing only those obsolete AI fields.
-         */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -69,11 +67,34 @@ abstract class ColorNestDatabase : RoomDatabase() {
             }
         }
 
-        /** Add nullable Drive identifiers without rebuilding or discarding existing rows. */
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE pages ADD COLUMN driveFileId TEXT")
                 db.execSQL("ALTER TABLE categories ADD COLUMN driveFolderId TEXT")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pages ADD COLUMN thumbnailUrl TEXT")
+                db.execSQL("ALTER TABLE pages ADD COLUMN isPreviewOnly INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pages ADD COLUMN driveThumbnailLink TEXT")
+                db.execSQL("ALTER TABLE pages ADD COLUMN whiteBackgroundProcessed INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pages ADD COLUMN whiteBackgroundVersion INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pages ADD COLUMN syncId TEXT")
+                db.execSQL("ALTER TABLE pages ADD COLUMN aiSuggestedTags TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE pages ADD COLUMN aiScannedAt INTEGER")
+                db.execSQL("ALTER TABLE pages ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE pages SET updatedAt = createdAt WHERE updatedAt = 0")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS tags (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_tags_name ON tags (name)")
             }
         }
 
@@ -88,8 +109,7 @@ abstract class ColorNestDatabase : RoomDatabase() {
                     "colornest_database"
                 )
                     .addCallback(DatabaseCallback())
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
-                    // Never silently erase a user's coloring library on upgrade.
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 instance

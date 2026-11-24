@@ -13,12 +13,21 @@ data class Page(
     val time: String = "TBD",
     val tool: String = "TBD",
     val imageUrl: String,
+    val thumbnailUrl: String? = null,
+    val isPreviewOnly: Boolean = false,
+    val driveThumbnailLink: String? = null,
     val isFavorite: Boolean = false,
     val isCompleted: Boolean = false,
     val progress: Int = 0,
     val isUncategorized: Boolean = true,
     val tags: List<String> = emptyList(),
-    // Google Drive file ID of the uploaded copy of this page (null = not uploaded yet).
+    // Google Drive file ID of the uploaded/linked copy of this page.
     val driveFileId: String? = null,
-    val createdAt: Long = System.currentTimeMillis()
+    val whiteBackgroundProcessed: Boolean = false,
+    val whiteBackgroundVersion: Int = 0,
+    val syncId: String? = null,
+    val aiSuggestedTags: List<String> = emptyList(),
+    val aiScannedAt: Long? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 )

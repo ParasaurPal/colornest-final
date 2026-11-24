@@ -83,7 +83,8 @@ class DriveConnectActivity : ComponentActivity() {
             applicationContext,
             database.pageDao(),
             database.categoryDao(),
-            database.settingDao()
+            database.settingDao(),
+            database.tagDao()
         )
 
         lifecycleScope.launch {

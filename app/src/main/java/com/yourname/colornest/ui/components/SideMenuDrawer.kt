@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -45,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yourname.colornest.data.model.Category
@@ -60,14 +64,25 @@ fun SideMenuDrawer(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var addParentCategory by remember { mutableStateOf<Category?>(null) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var newCategoryName by remember { mutableStateOf("") }
     val expandedMap = remember { mutableStateMapOf<Long, Boolean>() }
 
     if (showAddCategoryDialog) {
+        val parent = addParentCategory
         AlertDialog(
-            onDismissRequest = { showAddCategoryDialog = false },
-            title = { Text("New Root Category", fontWeight = FontWeight.Bold) },
+            onDismissRequest = {
+                showAddCategoryDialog = false
+                addParentCategory = null
+                newCategoryName = ""
+            },
+            title = {
+                Text(
+                    text = if (parent != null) "New Subcategory in \"${parent.name}\"" else "New Root Category",
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 OutlinedTextField(
                     value = newCategoryName,
@@ -81,8 +96,10 @@ fun SideMenuDrawer(
                 Button(
                     onClick = {
                         if (newCategoryName.isNotBlank()) {
-                            onAddCategory(newCategoryName.trim(), null)
+                            onAddCategory(newCategoryName.trim(), parent?.id)
+                            if (parent != null) expandedMap[parent.id] = true
                             newCategoryName = ""
+                            addParentCategory = null
                             showAddCategoryDialog = false
                         }
                     },
@@ -93,7 +110,13 @@ fun SideMenuDrawer(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddCategoryDialog = false }) {
+                TextButton(
+                    onClick = {
+                        showAddCategoryDialog = false
+                        addParentCategory = null
+                        newCategoryName = ""
+                    }
+                ) {
                     Text("Cancel")
                 }
             }
@@ -107,12 +130,17 @@ fun SideMenuDrawer(
             .fillMaxHeight()
             .testTag("side_menu_drawer")
     ) {
-        Column(modifier = Modifier.fillMaxHeight()) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -121,7 +149,12 @@ fun SideMenuDrawer(
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                IconButton(onClick = onClose, modifier = Modifier.testTag("close_menu_button")) {
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("close_menu_button")
+                ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close Menu",
@@ -138,7 +171,6 @@ fun SideMenuDrawer(
                     .weight(1f)
                     .padding(8.dp)
             ) {
-                // Central inbox for imports that have not been tagged yet.
                 item {
                     val isUntaggedActive = activeCategoryId == -1L
                     Row(
@@ -161,7 +193,6 @@ fun SideMenuDrawer(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
 
-                // All Pages option
                 item {
                     val isAllActive = activeCategoryId == null
                     Row(
@@ -186,7 +217,6 @@ fun SideMenuDrawer(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
 
-                // Recursive root nodes
                 val rootNodes = categories.filter { it.parentId == null }
                 items(rootNodes.size, key = { rootNodes[it].id }) { index ->
                     CategoryTreeItem(
@@ -198,6 +228,10 @@ fun SideMenuDrawer(
                         onSelectCategory = onSelectCategory,
                         onToggleExpand = { id ->
                             expandedMap[id] = !(expandedMap[id] ?: false)
+                        },
+                        onAddSubcategory = { parent ->
+                            addParentCategory = parent
+                            showAddCategoryDialog = true
                         }
                     )
                 }
@@ -208,7 +242,10 @@ fun SideMenuDrawer(
             // Footer buttons
             Column(modifier = Modifier.padding(16.dp)) {
                 Button(
-                    onClick = { showAddCategoryDialog = true },
+                    onClick = {
+                        addParentCategory = null
+                        showAddCategoryDialog = true
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -248,7 +285,8 @@ fun CategoryTreeItem(
     activeCategoryId: Long?,
     expandedMap: Map<Long, Boolean>,
     onSelectCategory: (Long?) -> Unit,
-    onToggleExpand: (Long) -> Unit
+    onToggleExpand: (Long) -> Unit,
+    onAddSubcategory: (Category) -> Unit = {}
 ) {
     val children = allCategories.filter { it.parentId == node.id }
     val hasChildren = children.isNotEmpty()
@@ -260,19 +298,19 @@ fun CategoryTreeItem(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = (depth * 16).dp)
+                .padding(start = (depth * 14).dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(
                     if (isActive) PurplePrimary.copy(alpha = 0.15f) else Color.Transparent
                 )
                 .clickable { onSelectCategory(node.id) }
-                .padding(horizontal = 8.dp, vertical = 10.dp)
+                .padding(horizontal = 6.dp, vertical = 8.dp)
                 .testTag("category_item_${node.id}")
         ) {
             if (hasChildren) {
                 IconButton(
                     onClick = { onToggleExpand(node.id) },
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.ArrowForwardIos,
@@ -282,10 +320,10 @@ fun CategoryTreeItem(
                     )
                 }
             } else {
-                Spacer(modifier = Modifier.width(24.dp))
+                Spacer(modifier = Modifier.width(28.dp))
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
             Text(
                 text = node.name,
@@ -293,8 +331,23 @@ fun CategoryTreeItem(
                 color = if (isActive) PurplePrimary else MaterialTheme.colorScheme.onSurface,
                 fontSize = 15.sp,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+
+            IconButton(
+                onClick = { onAddSubcategory(node) },
+                modifier = Modifier
+                    .size(32.dp)
+                    .testTag("add_subcategory_button_${node.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add subcategory to ${node.name}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
         }
 
         if (hasChildren && isExpanded) {
@@ -306,7 +359,8 @@ fun CategoryTreeItem(
                     activeCategoryId = activeCategoryId,
                     expandedMap = expandedMap,
                     onSelectCategory = onSelectCategory,
-                    onToggleExpand = onToggleExpand
+                    onToggleExpand = onToggleExpand,
+                    onAddSubcategory = onAddSubcategory
                 )
             }
         }

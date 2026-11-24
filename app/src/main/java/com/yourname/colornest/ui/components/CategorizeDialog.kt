@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -29,7 +32,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,7 +48,7 @@ import com.yourname.colornest.ui.theme.PurplePrimary
 fun CategorizeDialog(
     page: Page?,
     categories: List<Category>,
-    onSave: (pageId: Long, title: String, categoryId: Long?, tags: List<String>) -> Unit,
+    onSave: (pageId: Long, title: String, categoryId: Long?, tags: List<String>, isCompleted: Boolean) -> Unit,
     onClose: () -> Unit
 ) {
     if (page == null) return
@@ -51,6 +56,7 @@ fun CategorizeDialog(
     var title by remember(page.id) { mutableStateOf(page.title) }
     var selectedCategoryId by remember(page.id) { mutableStateOf(page.categoryId) }
     var tagsText by remember(page.id) { mutableStateOf(page.tags.joinToString(", ")) }
+    var isCompleted by remember(page.id) { mutableStateOf(page.isCompleted) }
     var categoryDropdownExpanded by remember(page.id) { mutableStateOf(false) }
 
     fun buildCategoryOptions(parentId: Long? = null, depth: Int = 0): List<Pair<Category, Int>> {
@@ -182,7 +188,34 @@ fun CategorizeDialog(
                         .testTag("edit_tags_input")
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Completed toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { isCompleted = !isCompleted }
+                        .padding(vertical = 4.dp)
+                        .testTag("edit_completed_row")
+                ) {
+                    Checkbox(
+                        checked = isCompleted,
+                        onCheckedChange = { isCompleted = it },
+                        colors = CheckboxDefaults.colors(checkedColor = PurplePrimary),
+                        modifier = Modifier.testTag("edit_completed_checkbox")
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Mark page as completed",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Action buttons
                 Row(
@@ -203,7 +236,7 @@ fun CategorizeDialog(
                                 .split(",")
                                 .map { it.trim() }
                                 .filter { it.isNotEmpty() }
-                            onSave(page.id, title.trim(), selectedCategoryId, tagList)
+                            onSave(page.id, title.trim(), selectedCategoryId, tagList, isCompleted)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
                         shape = RoundedCornerShape(12.dp),

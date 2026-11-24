@@ -124,6 +124,7 @@ class PickPageActivity : ComponentActivity() {
 
     private fun returnSelectedPages(pages: List<Page>) {
         val validFiles = pages.mapNotNull { page ->
+            if (page.isPreviewOnly || page.imageUrl.isBlank()) return@mapNotNull null
             val file = File(page.imageUrl)
             if (file.exists() && file.isFile) page to file else null
         }
@@ -198,6 +199,7 @@ private fun PickPageScreen(
         requestedMime
     ) {
         val byMime = uiState.pages.filter { page ->
+            if (page.isPreviewOnly || page.imageUrl.isBlank()) return@filter false
             val file = File(page.imageUrl)
             if (!file.exists() || !file.isFile) return@filter false
             when (requestedMime) {
@@ -583,9 +585,10 @@ private fun PickPageGridCard(
                     .clip(RoundedCornerShape(14.dp))
                     .background(if (isDarkMode) Color(0xFF18181B) else Color(0xFFF4F4F5))
             ) {
+                val displayPath = page.thumbnailUrl?.takeIf { File(it).exists() } ?: page.imageUrl
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(File(page.imageUrl))
+                        .data(File(displayPath))
                         .crossfade(true)
                         .build(),
                     contentDescription = page.title.ifBlank { "Coloring page" },

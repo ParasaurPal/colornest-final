@@ -172,7 +172,7 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
         runBlocking(Dispatchers.IO) {
             when {
                 parentDocumentId == DOC_ROOT -> {
-                    val pages = database.pageDao().getAllPages().filter { File(it.imageUrl).exists() }
+                    val pages = database.pageDao().getAllPages().filter { !it.isPreviewOnly && File(it.imageUrl).exists() }
                     val categories = database.categoryDao().getAllCategories()
 
                     includeVirtualFolder(
@@ -202,17 +202,17 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
                 }
                 parentDocumentId == DOC_ALL -> {
                     database.pageDao().getAllPages()
-                        .filter { File(it.imageUrl).exists() }
+                        .filter { !it.isPreviewOnly && File(it.imageUrl).exists() }
                         .forEach { includePageDocument(result, it) }
                 }
                 parentDocumentId == DOC_FAVORITES -> {
                     database.pageDao().getAllPages()
-                        .filter { it.isFavorite && File(it.imageUrl).exists() }
+                        .filter { it.isFavorite && !it.isPreviewOnly && File(it.imageUrl).exists() }
                         .forEach { includePageDocument(result, it) }
                 }
                 parentDocumentId == DOC_UNTAGGED -> {
                     database.pageDao().getUncategorizedPages()
-                        .filter { File(it.imageUrl).exists() }
+                        .filter { !it.isPreviewOnly && File(it.imageUrl).exists() }
                         .forEach { includePageDocument(result, it) }
                 }
                 parentDocumentId.startsWith(PREFIX_CATEGORY) -> {
@@ -224,7 +224,7 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
                         .forEach { includeCategoryFolder(result, it) }
 
                     database.pageDao().getAllPages()
-                        .filter { it.categoryId == catId && File(it.imageUrl).exists() }
+                        .filter { it.categoryId == catId && !it.isPreviewOnly && File(it.imageUrl).exists() }
                         .forEach { includePageDocument(result, it) }
                 }
                 else -> throw FileNotFoundException("Unknown parent document ID: $parentDocumentId")
@@ -245,7 +245,7 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
         runBlocking(Dispatchers.IO) {
             database.pageDao().getAllPages()
                 .asSequence()
-                .filter { File(it.imageUrl).exists() }
+                .filter { !it.isPreviewOnly && File(it.imageUrl).exists() }
                 .take(MAX_RECENT_RESULTS)
                 .forEach { includePageDocument(result, it) }
         }
@@ -268,7 +268,7 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
         runBlocking(Dispatchers.IO) {
             val pages = database.pageDao().getAllPages()
             for (page in pages) {
-                if (!File(page.imageUrl).exists()) continue
+                if (page.isPreviewOnly || !File(page.imageUrl).exists()) continue
                 if (normalized.isEmpty()) {
                     includePageDocument(result, page)
                 } else {

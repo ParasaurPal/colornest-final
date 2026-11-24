@@ -4,42 +4,73 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
-import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.PrepopulateCategories
+import com.yourname.colornest.data.ai.AiTaggingService
+import com.yourname.colornest.data.backup.BackupManager
+import com.yourname.colornest.data.drive.DriveBrowserEntry
+import com.yourname.colornest.data.drive.DriveSyncManager
+import com.yourname.colornest.data.drive.ScanProgress
+import com.yourname.colornest.data.drive.SyncResult
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
 import com.yourname.colornest.data.model.Setting
-import com.yourname.colornest.data.drive.DriveSyncManager
+import com.yourname.colornest.data.model.TagEntity
+import com.yourname.colornest.data.processing.DuplicateFinder
+import com.yourname.colornest.data.processing.DuplicateGroup
+import com.yourname.colornest.data.processing.ImageProcessor
 import com.yourname.colornest.provider.ColorNestDocumentsProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.util.UUID
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 class ColorNestRepository(private val context: Context) {
     private val db = ColorNestDatabase.getDatabase(context)
     val pageDao = db.pageDao()
     val categoryDao = db.categoryDao()
     val settingDao = db.settingDao()
+    val tagDao = db.tagDao()
+
     val driveSyncManager by lazy {
-        DriveSyncManager(context, pageDao, categoryDao, settingDao)
+        DriveSyncManager(context, pageDao, categoryDao, settingDao, tagDao)
     }
 
+    val scanProgress: StateFlow<ScanProgress?>
+        get() = driveSyncManager.scanProgress
+
     private val imagesDir: File by lazy {
-        val dir = File(context.filesDir, "colornest")
-        if (!dir.exists()) dir.mkdirs()
-        dir
+        File(context.filesDir, "colornest").apply { if (!exists()) mkdirs() }
+    }
+
+    private val thumbsDir: File by lazy {
+        File(context.filesDir, "colornest/thumbs").apply { if (!exists()) mkdirs() }
     }
 
     fun getAllPagesFlow(): Flow<List<Page>> = pageDao.getAllPagesFlow()
+
+    fun searchPagesFlow(rawQuery: String): Flow<List<Page>> {
+        val trimmed = rawQuery.trim()
+        if (trimmed.isEmpty()) return pageDao.getAllPagesFlow()
+        val escaped = trimmed
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        return pageDao.searchPagesFlow(escaped)
+    }
+
     fun getAllCategoriesFlow(): Flow<List<Category>> = categoryDao.getAllCategoriesFlow()
+    fun getAllTagsFlow(): Flow<List<TagEntity>> = tagDao.getAllTagsFlow()
     fun getSettingFlow(key: String): Flow<String?> = settingDao.getSettingFlow(key)
 
     suspend fun getSetting(key: String): String? = withContext(Dispatchers.IO) {
@@ -48,6 +79,10 @@ class ColorNestRepository(private val context: Context) {
 
     suspend fun setSetting(key: String, value: String) = withContext(Dispatchers.IO) {
         settingDao.setSetting(Setting(key = key, value = value))
+    }
+
+    suspend fun deleteSetting(key: String) = withContext(Dispatchers.IO) {
+        settingDao.deleteSetting(key)
     }
 
     suspend fun insertCategory(name: String, parentId: Long?): Long = withContext(Dispatchers.IO) {
@@ -63,48 +98,296 @@ class ColorNestRepository(private val context: Context) {
 
     suspend fun toggleFavorite(pageId: Long) = withContext(Dispatchers.IO) {
         val page = pageDao.getPageById(pageId) ?: return@withContext
-        pageDao.updatePage(page.copy(isFavorite = !page.isFavorite))
+        pageDao.updatePage(
+            page.copy(
+                isFavorite = !page.isFavorite,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
         ColorNestDocumentsProvider.notifyChanged(context)
     }
 
     suspend fun deletePage(page: Page) = withContext(Dispatchers.IO) {
-        // Record the deletion with Drive before removing the local row.
         driveSyncManager.trashPageFile(page)
-        val file = File(page.imageUrl)
-        if (file.exists()) {
-            file.delete()
-        }
+        deleteLocalFilesForPage(page)
         pageDao.deletePage(page)
         ColorNestDocumentsProvider.notifyChanged(context)
+    }
+
+    private fun deleteLocalFilesForPage(page: Page) {
+        page.imageUrl.takeIf { it.isNotBlank() }?.let { path ->
+            File(path).takeIf { it.exists() }?.delete()
+        }
+        page.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { path ->
+            File(path).takeIf { it.exists() }?.delete()
+        }
     }
 
     suspend fun updatePageDetails(
         pageId: Long,
         newTitle: String,
         newCategoryId: Long?,
-        tags: List<String>
+        tags: List<String>,
+        isCompleted: Boolean? = null
     ) = withContext(Dispatchers.IO) {
         val page = pageDao.getPageById(pageId) ?: return@withContext
+        val mergedTags = LinkedHashSet<String>()
+        tags.map { it.trim() }.filter { it.isNotEmpty() }.forEach { mergedTags.add(it) }
+        if (newCategoryId != null) {
+            val catName = categoryDao.getCategoryById(newCategoryId)?.name?.trim()
+            if (!catName.isNullOrEmpty()) {
+                mergedTags.add(catName)
+            }
+        }
+        val uniqueTags = mergedTags.toList()
+        val now = System.currentTimeMillis()
+
         val updated = page.copy(
             title = newTitle,
             categoryId = newCategoryId,
             isUncategorized = newCategoryId == null,
-            tags = tags
+            tags = uniqueTags,
+            isCompleted = isCompleted ?: page.isCompleted,
+            updatedAt = now
         )
         pageDao.updatePage(updated)
+        uniqueTags.forEach { name ->
+            if (tagDao.getTagByName(name) == null) {
+                tagDao.insertTag(TagEntity(name = name, createdAt = now))
+            }
+        }
         driveSyncManager.propagatePageChange(updated)
         ColorNestDocumentsProvider.notifyChanged(context)
     }
 
-    suspend fun trashCloudFolder(): Boolean = driveSyncManager.trashRootFolder()
+    // ---------- Tag catalog management ----------
 
-    suspend fun wipeAllData() = withContext(Dispatchers.IO) {
-        imagesDir.listFiles()?.forEach { it.delete() }
+    suspend fun createTag(rawName: String): Boolean = withContext(Dispatchers.IO) {
+        val name = rawName.trim()
+        if (name.isEmpty()) return@withContext false
+        if (tagDao.getTagByName(name) != null) return@withContext false
+        tagDao.insertTag(TagEntity(name = name))
+        true
+    }
+
+    suspend fun renameTag(oldName: String, rawNewName: String) = withContext(Dispatchers.IO) {
+        val newName = rawNewName.trim()
+        if (newName.isEmpty() || newName == oldName) return@withContext
+        val now = System.currentTimeMillis()
+        val allPages = pageDao.getAllPages()
+        for (page in allPages) {
+            if (oldName in page.tags) {
+                val updatedTags = page.tags.map { if (it == oldName) newName else it }.distinct()
+                pageDao.updatePage(page.copy(tags = updatedTags, updatedAt = now))
+            }
+        }
+        tagDao.deleteTagByName(oldName)
+        if (tagDao.getTagByName(newName) == null) {
+            tagDao.insertTag(TagEntity(name = newName, createdAt = now))
+        }
+        ColorNestDocumentsProvider.notifyChanged(context)
+    }
+
+    suspend fun deleteTag(name: String) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val allPages = pageDao.getAllPages()
+        for (page in allPages) {
+            if (name in page.tags) {
+                val updatedTags = page.tags.filterNot { it == name }
+                pageDao.updatePage(page.copy(tags = updatedTags, updatedAt = now))
+            }
+        }
+        tagDao.deleteTagByName(name)
+        ColorNestDocumentsProvider.notifyChanged(context)
+    }
+
+    suspend fun clearAllTags() = withContext(Dispatchers.IO) {
+        pageDao.clearAllTags(System.currentTimeMillis())
+        tagDao.deleteAllTags()
+        ColorNestDocumentsProvider.notifyChanged(context)
+    }
+
+    // ---------- AI subject tagging ----------
+
+    suspend fun applyAiTagSuggestions(page: Page, suggestedTags: List<String>) = withContext(Dispatchers.IO) {
+        val clean = suggestedTags.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
+        val merged = (page.tags + clean).distinct()
+        val now = System.currentTimeMillis()
+        pageDao.updatePage(
+            page.copy(
+                tags = merged,
+                aiSuggestedTags = clean,
+                aiScannedAt = now,
+                updatedAt = now
+            )
+        )
+        clean.forEach { name ->
+            if (tagDao.getTagByName(name) == null) {
+                tagDao.insertTag(TagEntity(name = name, createdAt = now))
+            }
+        }
+        ColorNestDocumentsProvider.notifyChanged(context)
+    }
+
+    suspend fun suggestTagsForPage(page: Page, apiKey: String): List<String> {
+        val imagePath = page.imageUrl.takeIf { it.isNotBlank() && File(it).exists() }
+            ?: page.thumbnailUrl?.takeIf { File(it).exists() }
+            ?: throw IllegalStateException("This page has no locally stored image to scan.")
+        return AiTaggingService.suggestPageTags(
+            apiKey = apiKey,
+            imagePath = imagePath,
+            fileName = page.title
+        )
+    }
+
+    // ---------- Backfill, batch processing, duplicates, storage ----------
+
+    suspend fun backfillThumbnails() = withContext(Dispatchers.IO) {
+        val pending = pageDao.getAllPages().filter {
+            !it.isPreviewOnly && it.imageUrl.isNotBlank() && it.thumbnailUrl.isNullOrBlank()
+        }
+        for (page in pending) {
+            val thumb = ImageProcessor.tryCreateThumbnailFromFile(File(page.imageUrl), thumbsDir)
+            if (thumb != null) {
+                pageDao.updatePage(page.copy(thumbnailUrl = thumb))
+            }
+        }
+    }
+
+    suspend fun processExistingLibrary(
+        onProgress: (done: Int, total: Int, currentTitle: String) -> Unit
+    ): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        val pending = pageDao.getAllPages().filter { ImageProcessor.needsWhiteBackgroundReprocessing(it) }
+        var processed = 0
+        var failed = 0
+        for ((index, page) in pending.withIndex()) {
+            onProgress(index, pending.size, page.title.ifBlank { "Untitled page" })
+            val oldImageFile = File(page.imageUrl)
+            val oldThumbFile = page.thumbnailUrl?.let { File(it) }
+            val result = runCatching {
+                ImageProcessor.reprocessExistingFile(oldImageFile, imagesDir, thumbsDir)
+            }.getOrNull()
+
+            if (result != null) {
+                pageDao.updatePage(
+                    page.copy(
+                        imageUrl = result.imagePath,
+                        thumbnailUrl = result.thumbnailPath,
+                        whiteBackgroundProcessed = result.whiteBackgroundProcessed,
+                        whiteBackgroundVersion = result.whiteBackgroundVersion
+                    )
+                )
+                if (oldImageFile.exists() && oldImageFile.absolutePath != result.imagePath) {
+                    oldImageFile.delete()
+                }
+                if (oldThumbFile != null && oldThumbFile.exists() && oldThumbFile.absolutePath != result.thumbnailPath) {
+                    oldThumbFile.delete()
+                }
+                processed++
+            } else {
+                failed++
+            }
+            onProgress(index + 1, pending.size, page.title.ifBlank { "Untitled page" })
+        }
+        ColorNestDocumentsProvider.notifyChanged(context)
+        Pair(processed, failed)
+    }
+
+    suspend fun findDuplicateGroups(
+        onProgress: (done: Int, total: Int) -> Unit
+    ): List<DuplicateGroup> = withContext(Dispatchers.IO) {
+        DuplicateFinder.findDuplicateGroups(pageDao.getAllPages(), onProgress)
+    }
+
+    suspend fun deleteDuplicatePages(
+        pagesToDelete: List<Page>,
+        onProgress: (done: Int, total: Int) -> Unit
+    ): Int = withContext(Dispatchers.IO) {
+        val allPages = pageDao.getAllPages()
+        val driveRefCounts = mutableMapOf<String, Int>()
+        for (p in allPages) {
+            val id = p.driveFileId ?: continue
+            driveRefCounts[id] = (driveRefCounts[id] ?: 0) + 1
+        }
+        var deleted = 0
+        for (page in pagesToDelete) {
+            val driveId = page.driveFileId
+            if (driveId != null && (driveRefCounts[driveId] ?: 0) > 1) {
+                deleteLocalFilesForPage(page)
+                pageDao.deletePage(page)
+                driveRefCounts[driveId] = (driveRefCounts[driveId] ?: 1) - 1
+            } else {
+                deletePage(page)
+            }
+            deleted++
+            onProgress(deleted, pagesToDelete.size)
+        }
+        ColorNestDocumentsProvider.notifyChanged(context)
+        deleted
+    }
+
+    suspend fun getStorageUsedBytes(): Long = withContext(Dispatchers.IO) {
+        var total = 0L
+        imagesDir.walkTopDown().filter { it.isFile }.forEach { total += it.length() }
+        total
+    }
+
+    // ---------- Backup Export / Restore ----------
+
+    suspend fun exportBackup(uri: Uri) = withContext(Dispatchers.IO) {
+        BackupManager.exportToUri(
+            context = context,
+            uri = uri,
+            pages = pageDao.getAllPages(),
+            categories = categoryDao.getAllCategories(),
+            tags = tagDao.getAllTags()
+        )
+    }
+
+    suspend fun importBackup(uri: Uri) = withContext(Dispatchers.IO) {
+        val restored = BackupManager.parseAndExtractFromUri(context, uri, imagesDir, thumbsDir)
         pageDao.deleteAllPages()
         categoryDao.deleteAllCategories()
+        tagDao.deleteAllTags()
+
+        // Preserve category parent relationships cleanly while letting Room re-assign or keep IDs
+        if (restored.categories.isNotEmpty()) {
+            categoryDao.insertCategories(restored.categories)
+        }
+        if (restored.pages.isNotEmpty()) {
+            pageDao.insertPages(restored.pages)
+        }
+        if (restored.tags.isNotEmpty()) {
+            tagDao.insertTags(restored.tags)
+        }
+        ColorNestDocumentsProvider.notifyChanged(context)
+    }
+
+    // ---------- Drive actions ----------
+
+    suspend fun trashCloudFolder(): Boolean = driveSyncManager.trashRootFolder()
+    suspend fun isDriveConnected(): Boolean = driveSyncManager.isConnected()
+    suspend fun getDriveAccountName(): String? = driveSyncManager.getAccountName()
+    suspend fun disconnectDrive() = driveSyncManager.disconnect()
+    suspend fun getLastDriveSync(): Long? = driveSyncManager.getLastSyncMillis()
+    suspend fun isDriveScanOnOpen(): Boolean = driveSyncManager.isScanOnOpenEnabled()
+    suspend fun setDriveScanOnOpen(enabled: Boolean) = driveSyncManager.setScanOnOpenEnabled(enabled)
+    suspend fun syncDrivePreviews(): SyncResult = driveSyncManager.syncPreviews()
+    suspend fun listDriveFiles(): Pair<Boolean, List<DriveBrowserEntry>> = driveSyncManager.listDriveFiles()
+    suspend fun downloadDriveEntry(entry: DriveBrowserEntry): Int = driveSyncManager.downloadDriveEntry(entry)
+    suspend fun downloadPreviewPage(page: Page): Pair<Int, Boolean> = driveSyncManager.downloadPreviewPage(page)
+    suspend fun fetchTempPreviewBytes(page: Page): ByteArray? = driveSyncManager.fetchTempPreviewBytes(page)
+    suspend fun downloadDriveFileToCache(page: Page): File? = driveSyncManager.downloadDriveFileToCache(page)
+
+    // ---------- Wipe ----------
+
+    suspend fun wipeAllData() = withContext(Dispatchers.IO) {
+        imagesDir.walkBottomUp().forEach { if (it != imagesDir) it.delete() }
+        pageDao.deleteAllPages()
+        categoryDao.deleteAllCategories()
+        tagDao.deleteAllTags()
         settingDao.deleteAllSettings()
 
-        // Re-seed default 5 categories
         val defaults = listOf(
             Category(name = "Animals", parentId = null),
             Category(name = "Mandalas & Patterns", parentId = null),
@@ -116,64 +399,7 @@ class ColorNestRepository(private val context: Context) {
         ColorNestDocumentsProvider.notifyChanged(context)
     }
 
-    // Convert white paper to transparency while preserving anti-aliased linework.
-    // The source bitmap is never modified; the transparent PNG is a separate app copy.
-    private fun saveTransparentLineArt(bitmap: Bitmap, baseName: String): String {
-        val maxDimension = max(bitmap.width, bitmap.height)
-        val working = if (maxDimension > 2000) {
-            val scale = 2000f / maxDimension
-            Bitmap.createScaledBitmap(
-                bitmap,
-                (bitmap.width * scale).toInt().coerceAtLeast(1),
-                (bitmap.height * scale).toInt().coerceAtLeast(1),
-                true
-            )
-        } else {
-            bitmap
-        }
-        val width = working.width
-        val height = working.height
-        val pixels = IntArray(width * height)
-        working.getPixels(pixels, 0, width, 0, 0, width, height)
-        for (index in pixels.indices) {
-            val pixel = pixels[index]
-            val luminance = (
-                0.2126 * AndroidColor.red(pixel) +
-                    0.7152 * AndroidColor.green(pixel) +
-                    0.0722 * AndroidColor.blue(pixel)
-                ).toInt()
-            val alpha = (255 - luminance).coerceIn(0, 255)
-            pixels[index] = AndroidColor.argb(alpha, 0, 0, 0)
-        }
-        val transparent = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        transparent.setPixels(pixels, 0, width, 0, 0, width, height)
-        val file = File(imagesDir, "${baseName}_${System.currentTimeMillis()}_${(100..999).random()}.png")
-        FileOutputStream(file).use { output -> transparent.compress(Bitmap.CompressFormat.PNG, 100, output) }
-        transparent.recycle()
-        if (working !== bitmap) working.recycle()
-        return file.absolutePath
-    }
-
-    // Save Bitmap scaled to max 600px width/height
-    private fun saveScaledBitmap(bitmap: Bitmap, baseName: String): String {
-        val width = bitmap.width
-        val height = bitmap.height
-        val maxDim = max(width, height)
-        val scaled = if (maxDim > 600) {
-            val scale = 600f / maxDim
-            val matrix = Matrix().apply { postScale(scale, scale) }
-            Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true)
-        } else {
-            bitmap
-        }
-
-        val file = File(imagesDir, "${baseName}_${System.currentTimeMillis()}_${(100..999).random()}.jpg")
-        FileOutputStream(file).use { out ->
-            scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        }
-        if (scaled != bitmap) scaled.recycle()
-        return file.absolutePath
-    }
+    // ---------- Import Images & PDFs ----------
 
     suspend fun importUri(
         uri: Uri,
@@ -182,32 +408,58 @@ class ColorNestRepository(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val mimeType = context.contentResolver.getType(uri) ?: ""
         val fileName = getFileName(uri)
+        val geminiKey = settingDao.getSetting("geminiApiKey").orEmpty().trim()
+        val autoTagEnabled = settingDao.getSetting("aiAutoTagUploads") == "true" && geminiKey.isNotEmpty()
 
         if (mimeType.contains("pdf", ignoreCase = true) || fileName.endsWith(".pdf", ignoreCase = true)) {
             onProgress("Reading PDF...", 10)
-            convertPdfToPages(uri, removeWhiteBackground, onProgress)
+            val baseTitle = fileName.replace(Regex("\\.pdf$", RegexOption.IGNORE_CASE), "").ifBlank { "Imported PDF" }
+            convertPdfToPages(uri, baseTitle, removeWhiteBackground, autoTagEnabled, geminiKey, onProgress)
         } else {
-            onProgress("Compressing Image...", 40)
+            onProgress("Processing image...", 40)
             var inputStream: InputStream? = null
             try {
                 inputStream = context.contentResolver.openInputStream(uri)
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 if (bitmap != null) {
-                    onProgress("Saving Image...", 80)
-                    val savedPath = if (removeWhiteBackground) {
-                        saveTransparentLineArt(bitmap, "img")
-                    } else {
-                        saveScaledBitmap(bitmap, "img")
-                    }
+                    onProgress(if (autoTagEnabled) "Saving & tagging image..." else "Saving image...", 75)
+                    val processed = ImageProcessor.processBitmapAndSave(
+                        bitmap = bitmap,
+                        imagesDir = imagesDir,
+                        thumbsDir = thumbsDir,
+                        baseName = "img",
+                        removeWhitePaper = removeWhiteBackground
+                    )
                     bitmap.recycle()
 
-                    pageDao.insertPage(
+                    val cleanTitle = if (fileName.contains('.')) {
+                        fileName.substringBeforeLast('.').ifBlank { "Untitled page" }
+                    } else {
+                        fileName.ifBlank { "Untitled page" }
+                    }
+                    val now = System.currentTimeMillis()
+                    val insertedId = pageDao.insertPage(
                         Page(
-                            title = "",
-                            imageUrl = savedPath,
-                            isUncategorized = true
+                            title = cleanTitle,
+                            imageUrl = processed.imagePath,
+                            thumbnailUrl = processed.thumbnailPath,
+                            isUncategorized = true,
+                            whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                            whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                            syncId = UUID.randomUUID().toString(),
+                            createdAt = now,
+                            updatedAt = now
                         )
                     )
+                    if (autoTagEnabled) {
+                        runCatching {
+                            val page = pageDao.getPageById(insertedId)
+                            if (page != null) {
+                                val tags = suggestTagsForPage(page, geminiKey)
+                                applyAiTagSuggestions(page, tags)
+                            }
+                        }
+                    }
                     ColorNestDocumentsProvider.notifyChanged(context)
                 }
             } finally {
@@ -216,9 +468,12 @@ class ColorNestRepository(private val context: Context) {
         }
     }
 
-    private fun convertPdfToPages(
+    private suspend fun convertPdfToPages(
         uri: Uri,
+        baseTitle: String,
         removeWhiteBackground: Boolean,
+        autoTagEnabled: Boolean,
+        geminiKey: String,
         onProgress: (text: String, percent: Int) -> Unit
     ) {
         val tempPdfFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}.pdf")
@@ -234,28 +489,55 @@ class ColorNestRepository(private val context: Context) {
             val pageCount = pdfRenderer.pageCount
 
             for (i in 0 until pageCount) {
-                val percent = ((i + 1) * 100) / pageCount
-                onProgress("Converting Page ${i + 1} of $pageCount...", percent)
+                val percent = ((i + 1) * 100) / pageCount.coerceAtLeast(1)
+                onProgress(
+                    if (autoTagEnabled) "Saving & tagging page ${i + 1} of $pageCount..."
+                    else "Converting page ${i + 1} of $pageCount...",
+                    percent
+                )
 
                 val page = pdfRenderer.openPage(i)
-                val bitmap = Bitmap.createBitmap(page.width, page.height, Bitmap.Config.ARGB_8888)
+                val maxPdfSide = max(page.width, page.height).coerceAtLeast(1)
+                val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
+                val w = (page.width * scale).roundToInt().coerceAtLeast(1)
+                val h = (page.height * scale).roundToInt().coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(AndroidColor.WHITE)
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                 page.close()
 
-                val savedPath = if (removeWhiteBackground) {
-                    saveTransparentLineArt(bitmap, "pdf_page")
-                } else {
-                    saveScaledBitmap(bitmap, "pdf_page")
-                }
+                val processed = ImageProcessor.processBitmapAndSave(
+                    bitmap = bitmap,
+                    imagesDir = imagesDir,
+                    thumbsDir = thumbsDir,
+                    baseName = "pdf_page",
+                    removeWhitePaper = removeWhiteBackground
+                )
                 bitmap.recycle()
 
-                val pageEntity = Page(
-                    title = "",
-                    imageUrl = savedPath,
-                    isUncategorized = true
+                val now = System.currentTimeMillis()
+                val insertedId = pageDao.insertPage(
+                    Page(
+                        title = "$baseTitle - Page ${i + 1}",
+                        imageUrl = processed.imagePath,
+                        thumbnailUrl = processed.thumbnailPath,
+                        isUncategorized = true,
+                        whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                        whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                        syncId = UUID.randomUUID().toString(),
+                        createdAt = now,
+                        updatedAt = now
+                    )
                 )
-                kotlinx.coroutines.runBlocking {
-                    pageDao.insertPage(pageEntity)
+
+                if (autoTagEnabled) {
+                    runCatching {
+                        val savedPage = pageDao.getPageById(insertedId)
+                        if (savedPage != null) {
+                            val tags = suggestTagsForPage(savedPage, geminiKey)
+                            applyAiTagSuggestions(savedPage, tags)
+                        }
+                    }
                 }
             }
 
@@ -274,7 +556,7 @@ class ColorNestRepository(private val context: Context) {
             if (it.moveToFirst()) {
                 val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                 if (index != -1) {
-                    name = it.getString(index)
+                    name = it.getString(index) ?: name
                 }
             }
         }

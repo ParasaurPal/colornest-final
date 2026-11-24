@@ -1,72 +1,29 @@
-# ColorNest
+# ColorNest (Android)
 
-ColorNest is a **PWA-first coloring-page library**. Install it from a supported browser on Android, iOS, Windows, macOS, or Linux. It runs as a standalone web app and keeps the library available offline.
+ColorNest is a native Android **Kotlin & Jetpack Compose** coloring-page library and catalog manager. It keeps your coloring pages, multi-page PDF coloring books, nested categories, and tags organized locally in a Room database, with optional Google Drive integration and optional on-device-configured AI subject tagging.
 
-## What it does
+## Features
 
-- Import individual images and multi-page PDF coloring books.
-- Store originals in the browser's local IndexedDB on the phone or computer.
-- Organize pages with nested collections and reusable tags.
-- Browse and filter by multiple tags, using all-selected or any-selected matching.
-- Create, rename, merge, and delete tags.
-- Mark favorites, search titles and tags, and view pages in a responsive gallery.
-- Install as a PWA and use fullscreen / standalone display modes where supported.
-- Export and restore a complete portable JSON library backup.
-- Optionally synchronize page images and page metadata with Google Drive.
+- **Import Images & PDF Coloring Books**: Import multiple images via the Android Photo Picker, PDF books via the system document picker (`PdfRenderer`), or files shared directly from other apps via Android's Share sheet (`ACTION_SEND` / `ACTION_SEND_MULTIPLE`).
+- **Transparent Black-Ink Paper Removal**: Automatically converts white/near-white paper and gray tones into crisp black line art on transparent PNG paper (with an option to keep white backgrounds, plus batch conversion for existing library pages).
+- **Nested Categories & Multi-Tag Browser**: Organize pages in deeply nested folders (`Animals > Mammals > Canines`), create/rename/delete reusable tags, filter using multiple tags with **All** or **Any** matching, filter untagged pages, mark Favorites and Completed status, and sort by recency, title, or favorites.
+- **Fullscreen Viewer & Dark Mode**: Tap any card to view full-resolution pages with pinch-to-zoom and double-tap zoom. Dark mode automatically inverts line art for comfortable nighttime browsing.
+- **Drawing App & System Integration**:
+  - Open pages directly as a new canvas in **Clip Studio Paint**, via `ACTION_VIEW` / `ACTION_EDIT`, or save to `Pictures/ColorNest`.
+  - Expose saved local pages to external drawing apps via `PickPageActivity` (`GET_CONTENT` / `PICK`) and `ColorNestDocumentsProvider` (Android Storage Access Framework).
+- **Backups & Duplicate Finder**: Export and restore portable JSON backups (`ColorNest backup` format) and detect/remove byte-identical duplicate images (SHA-256) while keeping preferred categorized/favorite copies.
+- **Google Drive Sync & Browser**: Connect your Google account (`DriveConnectActivity`) to browse your `ColorNest` Drive folder, import lightweight previews on launch or on demand, process the `PDF Inbox`, and download full-resolution pages on demand.
+- **Optional AI Subject Tagging**: Supply your own Gemini API key in Settings (stored locally on device) to auto-tag uploads or batch-scan existing pages with a review confirmation step.
 
-## Install and fullscreen
+## Architecture & Tech Stack
 
-- **Android:** open the hosted PWA in Chrome, then use the browser menu → **Install app** or **Add to Home screen**.
-- **Desktop:** use the install icon in Chrome/Edge when it appears.
-- **iPhone/iPad:** open in Safari → Share → **Add to Home Screen**. iOS opens the installed site in its standalone app window; the explicit Fullscreen button is available only in browsers that support the Fullscreen API.
+- **UI**: Jetpack Compose, Material Design 3, Edge-to-Edge (`enableEdgeToEdge()`), Coil
+- **Persistence**: Room (`ColorNestDatabase` v4 with `Page`, `Category`, `TagEntity`, `Setting`) + app-private file storage (`filesDir/colornest`)
+- **Cloud**: Google Drive REST API v3 + Google Play Services Auth
+- **Requirements**: Java 21, Android SDK 36, Min SDK 26
 
-The manifest requests fullscreen display mode first and falls back to standalone/minimal UI where the platform does not support fullscreen PWAs.
-
-## Storage model
-
-Local browser storage is the working library and is available offline. Each browser/device has its own local copy. Use **Settings → This device & backups** to export a complete backup and restore it on another device. Browser storage quotas and eviction policies vary by platform, so keep a separate backup for important libraries.
-
-Google Drive is optional cloud synchronization. Connect the same Google account on each device. ColorNest stores images in a `ColorNest` folder and one JSON sidecar per page containing the title, nested category path, tags, favorite/completion state, and update timestamp. Sync uses last-write-wins timestamps for metadata. Keep device clocks reasonably accurate and avoid editing the same page simultaneously on multiple devices.
-
-## Development
-
-Requirements: Node.js 22.12+ (or 20.19+) and npm.
+## Building
 
 ```sh
-npm ci
-npm run dev
+gradle :app:assembleDebug
 ```
-
-Production build:
-
-```sh
-npm run build
-npm run preview
-```
-
-The production site must be served over HTTPS (localhost is also treated as a secure context by browsers) for PWA installation, service workers, and Google sign-in.
-
-## Hosted PWA
-
-The repository builds a production PWA artifact on every push and pull request. To publish it at `https://parasaurpal.github.io/colornest-final/`, enable **Settings → Pages → Build and deployment → GitHub Actions**, then add the Actions variable `ENABLE_GITHUB_PAGES=true`. Pull requests run the production build without publishing it. The PWA uses the repository subpath as its install scope.
-
-## Google Drive setup
-
-See [DRIVE_SETUP.md](DRIVE_SETUP.md). Set `VITE_GOOGLE_CLIENT_ID` to a Google OAuth **Web application** client ID before building. It is a public client identifier, not a secret. Never put a client secret in the browser app.
-
-## Android app
-
-The repository also contains the native Kotlin/Jetpack Compose Android app in `app/`. It uses a local Room database and app-private image storage. The Android and PWA clients are built separately and have separate local libraries; connecting both to the same Google account does not currently synchronize every metadata field between clients.
-
-- Android builds use Java 21, Android SDK 36, and the Gradle wrapper.
-- GitHub Actions runs `:app:assembleDebug` on relevant pushes and pull requests.
-- The debug APK is published as the `ColorNest-Android-debug` workflow artifact.
-- The Android client has its own Google Drive setup described in [DRIVE_SETUP.md](DRIVE_SETUP.md).
-
-To build locally:
-
-```sh
-./gradlew :app:assembleDebug
-```
-
-The PWA build does not compile or package the Android app.

@@ -4,15 +4,101 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yourname.colornest.data.drive.DriveBrowserEntry
+import com.yourname.colornest.data.drive.ScanProgress
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
+import com.yourname.colornest.data.model.TagEntity
+import com.yourname.colornest.data.processing.DuplicateGroup
+import com.yourname.colornest.data.processing.ImageProcessor
 import com.yourname.colornest.data.repository.ColorNestRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
+
+enum class TagMatchMode { ALL, ANY }
+
+enum class SortOption(val label: String) {
+    RECENT("Recently updated"),
+    OLDEST("Oldest updated"),
+    TITLE_ASC("Title A–Z"),
+    TITLE_DESC("Title Z–A"),
+    FAVORITES("Favorites first")
+}
+
+data class PendingAiSuggestion(
+    val page: Page,
+    val tags: List<String>
+)
+
+data class ViewerUiState(
+    val page: Page? = null,
+    val tempPreviewBytes: ByteArray? = null,
+    val isTempPreviewLoading: Boolean = false,
+    val isDownloadingPreview: Boolean = false,
+    val downloadStatus: String = "",
+    val downloadedPdfPages: Int? = null
+)
+
+data class DriveBrowserUiState(
+    val isOpen: Boolean = false,
+    val isLoading: Boolean = false,
+    val notConnected: Boolean = false,
+    val error: String? = null,
+    val files: List<DriveBrowserEntry> = emptyList(),
+    val selectedEntry: DriveBrowserEntry? = null,
+    val downloadingId: String? = null,
+    val status: String = ""
+)
+
+enum class DuplicatesStage { SCANNING, READY, DELETING, DONE }
+
+data class DuplicatesUiState(
+    val isOpen: Boolean = false,
+    val stage: DuplicatesStage = DuplicatesStage.SCANNING,
+    val groups: List<DuplicateGroup> = emptyList(),
+    val keepByHash: Map<String, Long> = emptyMap(),
+    val scanDone: Int = 0,
+    val scanTotal: Int = 0,
+    val deleteDone: Int = 0,
+    val deleteTotal: Int = 0,
+    val deletedCount: Int = 0
+)
+
+data class SettingsExtraUiState(
+    val galleryFullImages: Boolean = false,
+    val storageUsedBytes: Long = 0L,
+    val unprocessedImageCount: Int = 0,
+    val isProcessingLibrary: Boolean = false,
+    val libraryProcessDone: Int = 0,
+    val libraryProcessTotal: Int = 0,
+    val libraryProcessStatus: String = "",
+    val backupBusy: Boolean = false,
+    val backupStatus: String = "",
+    val driveConnected: Boolean = false,
+    val driveAccount: String? = null,
+    val driveLastSync: Long? = null,
+    val driveScanOnOpen: Boolean = true,
+    val isSyncingDrive: Boolean = false,
+    val driveStatus: String = "",
+    val geminiApiKey: String = "",
+    val aiAutoTagUploads: Boolean = false,
+    val isAiTagging: Boolean = false,
+    val aiTagDone: Int = 0,
+    val aiTagTotal: Int = 0,
+    val aiTagStatus: String = "",
+    val pendingAiSuggestions: List<PendingAiSuggestion>? = null
+)
 
 data class UiState(
     val pages: List<Page> = emptyList(),
@@ -20,7 +106,12 @@ data class UiState(
     val categories: List<Category> = emptyList(),
     val activeCategoryId: Long? = null,
     val availableTags: List<String> = emptyList(),
+    val tagCounts: List<Pair<String, Int>> = emptyList(),
     val selectedTag: String? = null,
+    val activeTags: Set<String> = emptySet(),
+    val tagMatchMode: TagMatchMode = TagMatchMode.ALL,
+    val showNoTagsOnly: Boolean = false,
+    val sortBy: SortOption = SortOption.RECENT,
     val searchQuery: String = "",
     val isDarkMode: Boolean = false,
     val showTutorial: Boolean = false,
@@ -35,127 +126,184 @@ data class UiState(
     val wipeStep: Int = 0,
     val deleteCloud: Boolean = false,
     val confirmDeleteText: String = "",
-    val wipeError: String? = null
+    val wipeError: String? = null,
+    val galleryFullImages: Boolean = false,
+    val scanProgress: ScanProgress? = null,
+    val importStatus: String = ""
+)
+
+private data class FilterState(
+    val activeCategoryId: Long? = null,
+    val activeTags: Set<String> = emptySet(),
+    val tagMatchMode: TagMatchMode = TagMatchMode.ALL,
+    val showNoTagsOnly: Boolean = false,
+    val sortBy: SortOption = SortOption.RECENT,
+    val searchQuery: String = ""
+)
+
+private data class ModalState(
+    val isDarkMode: Boolean = false,
+    val showTutorial: Boolean = false,
+    val isAddModalOpen: Boolean = false,
+    val isMenuOpen: Boolean = false,
+    val isSettingsOpen: Boolean = false,
+    val categorizingPage: Page? = null,
+    val isProcessingAdd: Boolean = false,
+    val addProgressText: String = "",
+    val addProgressPercent: Int = 0,
+    val isSeeding: Boolean = false,
+    val wipeStep: Int = 0,
+    val deleteCloud: Boolean = false,
+    val confirmDeleteText: String = "",
+    val wipeError: String? = null,
+    val importStatus: String = ""
 )
 
 class ColorNestViewModel(application: Application) : AndroidViewModel(application) {
     val repository = ColorNestRepository(application)
 
-    private val _activeCategoryId = MutableStateFlow<Long?>(null)
-    private val _selectedTag = MutableStateFlow<String?>(null)
-    private val _searchQuery = MutableStateFlow("")
-    private val _isDarkMode = MutableStateFlow(false)
-    private val _showTutorial = MutableStateFlow(false)
-    private val _isAddModalOpen = MutableStateFlow(false)
-    private val _isMenuOpen = MutableStateFlow(false)
-    private val _isSettingsOpen = MutableStateFlow(false)
-    private val _categorizingPage = MutableStateFlow<Page?>(null)
-    private val _isProcessingAdd = MutableStateFlow(false)
-    private val _addProgressText = MutableStateFlow("")
-    private val _addProgressPercent = MutableStateFlow(0)
-    private val _isSeeding = MutableStateFlow(false)
-    private val _wipeStep = MutableStateFlow(0)
-    private val _deleteCloud = MutableStateFlow(false)
-    private val _confirmDeleteText = MutableStateFlow("")
-    private val _wipeError = MutableStateFlow<String?>(null)
+    private val _filterState = MutableStateFlow(FilterState())
+    private val _modalState = MutableStateFlow(ModalState())
+    private val _settingsExtra = MutableStateFlow(SettingsExtraUiState())
+    val settingsExtra: StateFlow<SettingsExtraUiState> = _settingsExtra.asStateFlow()
+
+    private val _viewerState = MutableStateFlow(ViewerUiState())
+    val viewerState: StateFlow<ViewerUiState> = _viewerState.asStateFlow()
+
+    private val _driveBrowserState = MutableStateFlow(DriveBrowserUiState())
+    val driveBrowserState: StateFlow<DriveBrowserUiState> = _driveBrowserState.asStateFlow()
+
+    private val _duplicatesState = MutableStateFlow(DuplicatesUiState())
+    val duplicatesState: StateFlow<DuplicatesUiState> = _duplicatesState.asStateFlow()
 
     val pagesFlow = repository.getAllPagesFlow()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val searchedPagesFlow = _filterState
+        .map { it.searchQuery.trim() }
+        .distinctUntilChanged()
+        .flatMapLatest { query -> repository.searchPagesFlow(query) }
     val categoriesFlow = repository.getAllCategoriesFlow()
+    val tagsFlow = repository.getAllTagsFlow()
+    val scanProgressFlow = repository.scanProgress
 
     init {
         viewModelScope.launch {
             val seen = repository.getSetting("hasSeenTutorial")
             if (seen == null || seen != "true") {
-                _showTutorial.value = true
+                _modalState.update { it.copy(showTutorial = true) }
             }
-
             val theme = repository.getSetting("theme")
             if (theme == "dark") {
-                _isDarkMode.value = true
+                _modalState.update { it.copy(isDarkMode = true) }
+            }
+            val fullImages = repository.getSetting("galleryFullImages") == "true"
+            val geminiKey = repository.getSetting("geminiApiKey").orEmpty()
+            val autoTag = repository.getSetting("aiAutoTagUploads") == "true"
+            _settingsExtra.update {
+                it.copy(
+                    galleryFullImages = fullImages,
+                    geminiApiKey = geminiKey,
+                    aiAutoTagUploads = autoTag
+                )
+            }
+            refreshSettingsMetadata()
+
+            // Non-blocking thumbnail backfill for pages saved before thumbnails existed
+            launch { repository.backfillThumbnails() }
+
+            // Automatic Drive preview import on launch when enabled
+            launch {
+                if (repository.isDriveConnected() && repository.isDriveScanOnOpen()) {
+                    runCatching { repository.syncDrivePreviews() }
+                    refreshDriveSettings()
+                }
             }
         }
     }
 
+    private data class CatalogSnapshot(
+        val allPages: List<Page>,
+        val searchedPages: List<Page>,
+        val categories: List<Category>,
+        val savedTags: List<TagEntity>
+    )
+
     val uiState: StateFlow<UiState> = combine(
-        pagesFlow,
-        categoriesFlow,
-        _activeCategoryId,
-        _selectedTag,
-        _searchQuery,
-        _isDarkMode,
-        _showTutorial,
-        _isAddModalOpen,
-        _isMenuOpen,
-        _isSettingsOpen,
-        _categorizingPage,
-        _isProcessingAdd,
-        _addProgressText,
-        _addProgressPercent,
-        _isSeeding,
-        _wipeStep,
-        _deleteCloud,
-        _confirmDeleteText,
-        _wipeError
-    ) { args: Array<Any?> ->
-        @Suppress("UNCHECKED_CAST")
-        val pages = args[0] as List<Page>
-        @Suppress("UNCHECKED_CAST")
-        val categories = args[1] as List<Category>
-        val activeCatId = args[2] as Long?
-        val rawSelectedTag = args[3] as String?
-        val query = args[4] as String
-        val isDark = args[5] as Boolean
-        val showTut = args[6] as Boolean
-        val addModal = args[7] as Boolean
-        val menuOpen = args[8] as Boolean
-        val settingsOpen = args[9] as Boolean
-        val catPage = args[10] as Page?
-        val procAdd = args[11] as Boolean
-        val progText = args[12] as String
-        val progPct = args[13] as Int
-        val seeding = args[14] as Boolean
-        val wipeSt = args[15] as Int
-        val delCloud = args[16] as Boolean
-        val confText = args[17] as String
-        val wipeError = args[18] as String?
-
-        val availableTags = pages
-            .asSequence()
-            .flatMap { it.tags.asSequence() }
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinctBy { it.lowercase() }
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
-            .toList()
-
-        val effectiveSelectedTag = rawSelectedTag?.let { sel ->
-            availableTags.firstOrNull { it.equals(sel, ignoreCase = true) }
+        combine(pagesFlow, searchedPagesFlow, categoriesFlow, tagsFlow) { allPages, searchedPages, categories, savedTags ->
+            CatalogSnapshot(allPages, searchedPages, categories, savedTags)
+        },
+        _filterState,
+        _modalState,
+        _settingsExtra,
+        scanProgressFlow
+    ) { catalog, filter, modal, settings, scanProg ->
+        val pages = catalog.allPages
+        val categories = catalog.categories
+        val savedTags = catalog.savedTags
+        val countsMap = linkedMapOf<String, Int>()
+        savedTags.forEach { tag ->
+            val trimmed = tag.name.trim()
+            if (trimmed.isNotEmpty() && !countsMap.containsKey(trimmed)) {
+                countsMap[trimmed] = 0
+            }
         }
+        pages.forEach { page ->
+            page.tags.forEach { raw ->
+                val trimmed = raw.trim()
+                if (trimmed.isNotEmpty()) {
+                    countsMap[trimmed] = (countsMap[trimmed] ?: 0) + 1
+                }
+            }
+        }
+        val tagCounts = countsMap.entries
+            .map { it.key to it.value }
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.first })
 
-        val filtered = filterPages(pages, categories, activeCatId, effectiveSelectedTag, query)
+        val availableTags = tagCounts.map { it.first }
+        val activeTagsNormalized = filter.activeTags.filter { active ->
+            availableTags.any { it.equals(active, ignoreCase = true) }
+        }.toSet()
+
+        val filtered = filterAndSortPages(
+            pages = catalog.searchedPages,
+            categories = categories,
+            activeCatId = filter.activeCategoryId,
+            activeTags = activeTagsNormalized,
+            tagMatchMode = filter.tagMatchMode,
+            showNoTagsOnly = filter.showNoTagsOnly,
+            sortBy = filter.sortBy
+        )
 
         UiState(
             pages = pages,
             filteredPages = filtered,
             categories = categories,
-            activeCategoryId = activeCatId,
+            activeCategoryId = filter.activeCategoryId,
             availableTags = availableTags,
-            selectedTag = effectiveSelectedTag,
-            searchQuery = query,
-            isDarkMode = isDark,
-            showTutorial = showTut,
-            isAddModalOpen = addModal,
-            isMenuOpen = menuOpen,
-            isSettingsOpen = settingsOpen,
-            categorizingPage = catPage,
-            isProcessingAdd = procAdd,
-            addProgressText = progText,
-            addProgressPercent = progPct,
-            isSeeding = seeding,
-            wipeStep = wipeSt,
-            deleteCloud = delCloud,
-            confirmDeleteText = confText,
-            wipeError = wipeError
+            tagCounts = tagCounts,
+            selectedTag = activeTagsNormalized.firstOrNull(),
+            activeTags = activeTagsNormalized,
+            tagMatchMode = filter.tagMatchMode,
+            showNoTagsOnly = filter.showNoTagsOnly,
+            sortBy = filter.sortBy,
+            searchQuery = filter.searchQuery,
+            isDarkMode = modal.isDarkMode,
+            showTutorial = modal.showTutorial,
+            isAddModalOpen = modal.isAddModalOpen,
+            isMenuOpen = modal.isMenuOpen,
+            isSettingsOpen = modal.isSettingsOpen,
+            categorizingPage = modal.categorizingPage,
+            isProcessingAdd = modal.isProcessingAdd,
+            addProgressText = modal.addProgressText,
+            addProgressPercent = modal.addProgressPercent,
+            isSeeding = modal.isSeeding,
+            wipeStep = modal.wipeStep,
+            deleteCloud = modal.deleteCloud,
+            confirmDeleteText = modal.confirmDeleteText,
+            wipeError = modal.wipeError,
+            galleryFullImages = settings.galleryFullImages,
+            scanProgress = scanProg,
+            importStatus = modal.importStatus
         )
     }.stateIn(
         viewModelScope,
@@ -172,142 +320,762 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         return result
     }
 
-    private fun filterPages(
+    private fun filterAndSortPages(
         pages: List<Page>,
         categories: List<Category>,
         activeCatId: Long?,
-        selectedTag: String?,
-        query: String
+        activeTags: Set<String>,
+        tagMatchMode: TagMatchMode,
+        showNoTagsOnly: Boolean,
+        sortBy: SortOption
     ): List<Page> {
-        return pages.filter { page ->
+        val filtered = pages.filter { page ->
             if (activeCatId == -1L) {
                 if (!page.isUncategorized) return@filter false
             } else if (activeCatId != null) {
                 val validIds = getCategoryAndChildren(activeCatId, categories)
                 if (page.categoryId !in validIds) return@filter false
             }
-            if (selectedTag != null) {
-                val matchesTag = page.tags.any { it.trim().equals(selectedTag, ignoreCase = true) }
-                if (!matchesTag) return@filter false
+            if (activeTags.isNotEmpty()) {
+                val matches = if (tagMatchMode == TagMatchMode.ALL) {
+                    activeTags.all { selected ->
+                        page.tags.any { it.trim().equals(selected, ignoreCase = true) }
+                    }
+                } else {
+                    activeTags.any { selected ->
+                        page.tags.any { it.trim().equals(selected, ignoreCase = true) }
+                    }
+                }
+                if (!matches) return@filter false
             }
-            if (query.isNotBlank()) {
-                val q = query.lowercase()
-                val matchTitle = page.title.lowercase().contains(q)
-                val matchTags = page.tags.any { it.lowercase().contains(q) }
-                if (!matchTitle && !matchTags) return@filter false
+            if (showNoTagsOnly && page.tags.isNotEmpty()) {
+                return@filter false
             }
             true
         }
-    }
 
-    fun setSearchQuery(q: String) { _searchQuery.value = q }
-    fun setActiveCategory(id: Long?) { _activeCategoryId.value = id }
-    fun selectTag(tag: String?) {
-        if (tag == null) {
-            _selectedTag.value = null
-        } else {
-            val current = _selectedTag.value
-            _selectedTag.value = if (current != null && current.equals(tag, ignoreCase = true)) null else tag
+        return when (sortBy) {
+            SortOption.RECENT -> filtered.sortedByDescending { it.updatedAt }
+            SortOption.OLDEST -> filtered.sortedBy { it.updatedAt }
+            SortOption.TITLE_ASC -> filtered.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            SortOption.TITLE_DESC -> filtered.sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.title })
+            SortOption.FAVORITES -> filtered.sortedWith(
+                compareByDescending<Page> { it.isFavorite }.thenByDescending { it.updatedAt }
+            )
         }
     }
-    fun setMenuOpen(open: Boolean) { _isMenuOpen.value = open }
-    fun setAddModalOpen(open: Boolean) { _isAddModalOpen.value = open }
-    fun setSettingsOpen(open: Boolean) { _isSettingsOpen.value = open }
-    fun setCategorizingPage(page: Page?) { _categorizingPage.value = page }
+
+    // ---------- Filter & Sort Actions ----------
+
+    fun setSearchQuery(q: String) {
+        _filterState.update { it.copy(searchQuery = q) }
+    }
+
+    fun setActiveCategory(id: Long?) {
+        _filterState.update { it.copy(activeCategoryId = id) }
+    }
+
+    fun selectTag(tag: String?) {
+        _filterState.update { state ->
+            if (tag == null) {
+                state.copy(activeTags = emptySet())
+            } else {
+                val existing = state.activeTags.firstOrNull { it.equals(tag, ignoreCase = true) }
+                val next = if (existing != null) state.activeTags - existing else setOf(tag)
+                state.copy(activeTags = next, showNoTagsOnly = false)
+            }
+        }
+    }
+
+    fun toggleTagFilter(tag: String) {
+        _filterState.update { state ->
+            val existing = state.activeTags.firstOrNull { it.equals(tag, ignoreCase = true) }
+            val next = if (existing != null) state.activeTags - existing else state.activeTags + tag
+            state.copy(activeTags = next, showNoTagsOnly = false)
+        }
+    }
+
+    fun clearTagFilters() {
+        _filterState.update { it.copy(activeTags = emptySet()) }
+    }
+
+    fun setTagMatchMode(mode: TagMatchMode) {
+        _filterState.update { it.copy(tagMatchMode = mode) }
+    }
+
+    fun toggleNoTagsOnly() {
+        _filterState.update {
+            val next = !it.showNoTagsOnly
+            it.copy(
+                showNoTagsOnly = next,
+                activeTags = if (next) emptySet() else it.activeTags
+            )
+        }
+    }
+
+    fun clearAllFilters() {
+        _filterState.update {
+            it.copy(
+                activeCategoryId = null,
+                activeTags = emptySet(),
+                showNoTagsOnly = false,
+                searchQuery = ""
+            )
+        }
+    }
+
+    fun setSortOption(option: SortOption) {
+        _filterState.update { it.copy(sortBy = option) }
+    }
+
+    // ---------- Tag CRUD ----------
+
+    fun createTag(name: String, onDuplicate: () -> Unit = {}) {
+        viewModelScope.launch {
+            val created = repository.createTag(name)
+            if (!created) onDuplicate()
+        }
+    }
+
+    fun renameTag(oldName: String, newName: String) {
+        viewModelScope.launch {
+            repository.renameTag(oldName, newName)
+            _filterState.update { state ->
+                val updated = state.activeTags.map {
+                    if (it.equals(oldName, ignoreCase = true)) newName.trim() else it
+                }.toSet()
+                state.copy(activeTags = updated)
+            }
+        }
+    }
+
+    fun deleteTag(name: String) {
+        viewModelScope.launch {
+            repository.deleteTag(name)
+            _filterState.update { state ->
+                state.copy(activeTags = state.activeTags.filterNot { it.equals(name, ignoreCase = true) }.toSet())
+            }
+        }
+    }
+
+    fun clearAllTags() {
+        viewModelScope.launch {
+            repository.clearAllTags()
+            _filterState.update { it.copy(activeTags = emptySet()) }
+        }
+    }
+
+    // ---------- Modals & Theme ----------
+
+    fun setMenuOpen(open: Boolean) { _modalState.update { it.copy(isMenuOpen = open) } }
+    fun setAddModalOpen(open: Boolean) { _modalState.update { it.copy(isAddModalOpen = open) } }
+    fun setSettingsOpen(open: Boolean) {
+        _modalState.update { it.copy(isSettingsOpen = open) }
+        if (open) {
+            viewModelScope.launch { refreshSettingsMetadata() }
+        }
+    }
+    fun setCategorizingPage(page: Page?) { _modalState.update { it.copy(categorizingPage = page) } }
 
     fun toggleTheme() {
-        val newTheme = !_isDarkMode.value
-        _isDarkMode.value = newTheme
+        val newTheme = !_modalState.value.isDarkMode
+        _modalState.update { it.copy(isDarkMode = newTheme) }
         viewModelScope.launch {
             repository.setSetting("theme", if (newTheme) "dark" else "light")
         }
     }
 
     fun completeTutorial() {
-        _showTutorial.value = false
+        _modalState.update { it.copy(showTutorial = false) }
         viewModelScope.launch {
             repository.setSetting("hasSeenTutorial", "true")
         }
     }
 
+    // ---------- Page Actions ----------
+
     fun toggleFavorite(pageId: Long) {
-        viewModelScope.launch {
-            repository.toggleFavorite(pageId)
-        }
+        viewModelScope.launch { repository.toggleFavorite(pageId) }
     }
 
     fun deletePage(page: Page) {
-        viewModelScope.launch {
-            repository.deletePage(page)
-        }
+        viewModelScope.launch { repository.deletePage(page) }
     }
 
     fun addCategory(name: String, parentId: Long?) {
+        viewModelScope.launch { repository.insertCategory(name, parentId) }
+    }
+
+    fun savePageDetails(
+        pageId: Long,
+        title: String,
+        categoryId: Long?,
+        tags: List<String>,
+        isCompleted: Boolean? = null
+    ) {
         viewModelScope.launch {
-            repository.insertCategory(name, parentId)
+            repository.updatePageDetails(pageId, title, categoryId, tags, isCompleted)
+            _modalState.update { it.copy(categorizingPage = null) }
         }
     }
 
-    fun savePageDetails(pageId: Long, title: String, categoryId: Long?, tags: List<String>) {
-        viewModelScope.launch {
-            repository.updatePageDetails(pageId, title, categoryId, tags)
-            _categorizingPage.value = null
+    // ---------- In-app Fullscreen Page Viewer ----------
+
+    fun openPageViewer(page: Page) {
+        _viewerState.value = ViewerUiState(
+            page = page,
+            isTempPreviewLoading = page.isPreviewOnly
+        )
+        if (page.isPreviewOnly) {
+            viewModelScope.launch {
+                val bytes = repository.fetchTempPreviewBytes(page)
+                _viewerState.update { current ->
+                    if (current.page?.id == page.id) {
+                        current.copy(tempPreviewBytes = bytes, isTempPreviewLoading = false)
+                    } else current
+                }
+            }
         }
     }
+
+    fun closePageViewer() {
+        _viewerState.value = ViewerUiState()
+    }
+
+    fun downloadViewingPreviewPage() {
+        val page = _viewerState.value.page ?: return
+        if (_viewerState.value.isDownloadingPreview) return
+        viewModelScope.launch {
+            _viewerState.update {
+                it.copy(isDownloadingPreview = true, downloadStatus = "Downloading…")
+            }
+            try {
+                val (added, isPdf) = repository.downloadPreviewPage(page)
+                if (isPdf) {
+                    _viewerState.update {
+                        it.copy(
+                            isDownloadingPreview = false,
+                            downloadStatus = "",
+                            downloadedPdfPages = added
+                        )
+                    }
+                } else {
+                    val fresh = repository.pageDao.getPageById(page.id)
+                    _viewerState.update {
+                        it.copy(
+                            page = fresh ?: it.page,
+                            isDownloadingPreview = false,
+                            downloadStatus = "Downloaded — this page is now saved on this device."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _viewerState.update {
+                    it.copy(
+                        isDownloadingPreview = false,
+                        downloadStatus = "Download failed: ${e.message ?: "Unknown error"}"
+                    )
+                }
+            }
+        }
+    }
+
+    // ---------- Settings: Categories, Gallery, Storage, Line-art, Backups ----------
 
     fun seedMassiveCategories() {
         viewModelScope.launch {
-            _isSeeding.value = true
+            _modalState.update { it.copy(isSeeding = true) }
             repository.seedMassiveCategories()
-            _isSeeding.value = false
-            _isSettingsOpen.value = false
+            _modalState.update { it.copy(isSeeding = false, isSettingsOpen = false) }
         }
     }
 
-    fun setWipeStep(step: Int) {
-        _wipeStep.value = step
-        if (step == 0) _wipeError.value = null
+    fun toggleGalleryFullImages(enabled: Boolean) {
+        _settingsExtra.update { it.copy(galleryFullImages = enabled) }
+        viewModelScope.launch {
+            repository.setSetting("galleryFullImages", enabled.toString())
+        }
     }
-    fun setDeleteCloud(checked: Boolean) { _deleteCloud.value = checked }
-    fun setConfirmDeleteText(text: String) { _confirmDeleteText.value = text }
+
+    private suspend fun refreshSettingsMetadata() {
+        val pages = repository.pageDao.getAllPages()
+        val unprocessed = pages.count { ImageProcessor.needsWhiteBackgroundReprocessing(it) }
+        val bytes = repository.getStorageUsedBytes()
+        _settingsExtra.update {
+            it.copy(storageUsedBytes = bytes, unprocessedImageCount = unprocessed)
+        }
+        refreshDriveSettings()
+    }
+
+    fun refreshDriveSettings() {
+        viewModelScope.launch {
+            val connected = repository.isDriveConnected()
+            val account = repository.getDriveAccountName()
+            val lastSync = repository.getLastDriveSync()
+            val scanOnOpen = repository.isDriveScanOnOpen()
+            _settingsExtra.update {
+                it.copy(
+                    driveConnected = connected,
+                    driveAccount = account,
+                    driveLastSync = lastSync,
+                    driveScanOnOpen = scanOnOpen
+                )
+            }
+        }
+    }
+
+    fun processExistingLibrary() {
+        if (_settingsExtra.value.isProcessingLibrary) return
+        viewModelScope.launch {
+            _settingsExtra.update {
+                it.copy(
+                    isProcessingLibrary = true,
+                    libraryProcessDone = 0,
+                    libraryProcessTotal = it.unprocessedImageCount,
+                    libraryProcessStatus = "Preparing your library for black-ink conversion…"
+                )
+            }
+            try {
+                val (processed, failed) = repository.processExistingLibrary { done, total, title ->
+                    _settingsExtra.update {
+                        it.copy(
+                            libraryProcessDone = done,
+                            libraryProcessTotal = total,
+                            libraryProcessStatus = if (done < total) {
+                                "Converting to black ink ${done + 1} of $total: $title"
+                            } else {
+                                "Finishing…"
+                            }
+                        )
+                    }
+                }
+                val remaining = repository.pageDao.getAllPages()
+                    .count { ImageProcessor.needsWhiteBackgroundReprocessing(it) }
+                val bytes = repository.getStorageUsedBytes()
+                _settingsExtra.update {
+                    it.copy(
+                        isProcessingLibrary = false,
+                        unprocessedImageCount = remaining,
+                        storageUsedBytes = bytes,
+                        libraryProcessStatus = "Finished: $processed processed, $failed failed." +
+                            if (remaining > 0) " $remaining pages remain and can be retried." else ""
+                    )
+                }
+            } catch (e: Exception) {
+                _settingsExtra.update {
+                    it.copy(
+                        isProcessingLibrary = false,
+                        libraryProcessStatus = "Could not process library: ${e.message ?: "Unknown error"}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun exportBackup(uri: Uri) {
+        if (_settingsExtra.value.backupBusy) return
+        viewModelScope.launch {
+            _settingsExtra.update { it.copy(backupBusy = true, backupStatus = "Exporting backup…") }
+            try {
+                repository.exportBackup(uri)
+                _settingsExtra.update {
+                    it.copy(backupBusy = false, backupStatus = "Backup exported successfully.")
+                }
+            } catch (e: Exception) {
+                _settingsExtra.update {
+                    it.copy(backupBusy = false, backupStatus = "Backup export failed: ${e.message ?: "Unknown error"}")
+                }
+            }
+        }
+    }
+
+    fun importBackup(uri: Uri) {
+        if (_settingsExtra.value.backupBusy) return
+        viewModelScope.launch {
+            _settingsExtra.update { it.copy(backupBusy = true, backupStatus = "Restoring backup…") }
+            try {
+                repository.importBackup(uri)
+                refreshSettingsMetadata()
+                _settingsExtra.update {
+                    it.copy(backupBusy = false, backupStatus = "Backup restored. Your library is ready on this device.")
+                }
+            } catch (e: Exception) {
+                _settingsExtra.update {
+                    it.copy(backupBusy = false, backupStatus = "Backup restore failed: ${e.message ?: "Unknown error"}")
+                }
+            }
+        }
+    }
+
+    // ---------- Google Drive Actions ----------
+
+    fun syncDriveNow() {
+        if (_settingsExtra.value.isSyncingDrive) return
+        viewModelScope.launch {
+            _settingsExtra.update { it.copy(isSyncingDrive = true, driveStatus = "Checking for new Drive files…") }
+            try {
+                val result = repository.syncDrivePreviews()
+                refreshSettingsMetadata()
+                _settingsExtra.update {
+                    it.copy(isSyncingDrive = false, driveStatus = result.summary())
+                }
+            } catch (e: Exception) {
+                _settingsExtra.update {
+                    it.copy(isSyncingDrive = false, driveStatus = "Sync failed: ${e.message?.take(120) ?: "Unknown error"}")
+                }
+            }
+        }
+    }
+
+    fun disconnectDrive() {
+        viewModelScope.launch {
+            repository.disconnectDrive()
+            refreshDriveSettings()
+            _settingsExtra.update { it.copy(driveStatus = "Disconnected from Google Drive") }
+        }
+    }
+
+    fun setDriveScanOnOpen(enabled: Boolean) {
+        _settingsExtra.update { it.copy(driveScanOnOpen = enabled) }
+        viewModelScope.launch { repository.setDriveScanOnOpen(enabled) }
+    }
+
+    fun openDriveBrowser() {
+        _driveBrowserState.value = DriveBrowserUiState(isOpen = true, isLoading = true)
+        loadDriveBrowserFiles()
+    }
+
+    fun closeDriveBrowser() {
+        _driveBrowserState.value = DriveBrowserUiState()
+    }
+
+    fun selectDriveBrowserEntry(entry: DriveBrowserEntry?) {
+        _driveBrowserState.update { it.copy(selectedEntry = entry, status = "") }
+    }
+
+    fun loadDriveBrowserFiles() {
+        viewModelScope.launch {
+            _driveBrowserState.update { it.copy(isLoading = true, error = null, status = "") }
+            try {
+                val (connected, files) = repository.listDriveFiles()
+                _driveBrowserState.update {
+                    it.copy(
+                        isLoading = false,
+                        notConnected = !connected,
+                        files = files
+                    )
+                }
+            } catch (e: Exception) {
+                _driveBrowserState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Could not list Drive files."
+                    )
+                }
+            }
+        }
+    }
+
+    fun downloadDriveBrowserEntry(entry: DriveBrowserEntry) {
+        if (_driveBrowserState.value.downloadingId != null) return
+        viewModelScope.launch {
+            _driveBrowserState.update { it.copy(downloadingId = entry.id, status = "") }
+            try {
+                val added = repository.downloadDriveEntry(entry)
+                val markSaved: (DriveBrowserEntry) -> DriveBrowserEntry = { item ->
+                    if (item.id == entry.id) {
+                        item.copy(
+                            inLibrary = true,
+                            libraryPreviewOnly = false,
+                            importedPdf = if (item.isPdf) true else item.importedPdf
+                        )
+                    } else item
+                }
+                _driveBrowserState.update { state ->
+                    state.copy(
+                        downloadingId = null,
+                        files = state.files.map(markSaved),
+                        selectedEntry = state.selectedEntry?.let(markSaved),
+                        status = if (added == 1) {
+                            "Downloaded \"${entry.name}\"."
+                        } else {
+                            "Downloaded \"${entry.name}\" — $added pages added."
+                        }
+                    )
+                }
+                refreshSettingsMetadata()
+            } catch (e: Exception) {
+                _driveBrowserState.update {
+                    it.copy(
+                        downloadingId = null,
+                        status = "Download failed: ${e.message ?: "Unknown error"}"
+                    )
+                }
+            }
+        }
+    }
+
+    // ---------- Duplicates Finder ----------
+
+    fun openDuplicatesFinder() {
+        _duplicatesState.value = DuplicatesUiState(isOpen = true, stage = DuplicatesStage.SCANNING)
+        viewModelScope.launch {
+            val groups = repository.findDuplicateGroups { done, total ->
+                _duplicatesState.update { it.copy(scanDone = done, scanTotal = total) }
+            }
+            _duplicatesState.update {
+                it.copy(
+                    stage = DuplicatesStage.READY,
+                    groups = groups,
+                    keepByHash = groups.associate { g -> g.hash to g.pages.first().id }
+                )
+            }
+        }
+    }
+
+    fun closeDuplicatesFinder() {
+        _duplicatesState.value = DuplicatesUiState()
+    }
+
+    fun selectDuplicateToKeep(hash: String, pageId: Long) {
+        _duplicatesState.update { state ->
+            state.copy(keepByHash = state.keepByHash + (hash to pageId))
+        }
+    }
+
+    fun deleteSelectedDuplicates() {
+        val state = _duplicatesState.value
+        val toDelete = mutableListOf<Page>()
+        for (group in state.groups) {
+            val keepId = state.keepByHash[group.hash]
+            group.pages.filter { it.id != keepId }.forEach { toDelete.add(it) }
+        }
+        if (toDelete.isEmpty()) return
+
+        viewModelScope.launch {
+            _duplicatesState.update {
+                it.copy(stage = DuplicatesStage.DELETING, deleteDone = 0, deleteTotal = toDelete.size)
+            }
+            val deleted = repository.deleteDuplicatePages(toDelete) { done, total ->
+                _duplicatesState.update { it.copy(deleteDone = done, deleteTotal = total) }
+            }
+            refreshSettingsMetadata()
+            _duplicatesState.update {
+                it.copy(stage = DuplicatesStage.DONE, deletedCount = deleted)
+            }
+        }
+    }
+
+    // ---------- AI Subject Tagging ----------
+
+    fun updateGeminiApiKeyInput(key: String) {
+        _settingsExtra.update { it.copy(geminiApiKey = key) }
+    }
+
+    fun saveGeminiSettings() {
+        val key = _settingsExtra.value.geminiApiKey.trim()
+        val autoTag = _settingsExtra.value.aiAutoTagUploads
+        viewModelScope.launch {
+            if (key.isNotEmpty()) repository.setSetting("geminiApiKey", key)
+            else repository.deleteSetting("geminiApiKey")
+            repository.setSetting("aiAutoTagUploads", autoTag.toString())
+            _settingsExtra.update {
+                it.copy(
+                    aiTagStatus = if (key.isNotEmpty()) {
+                        "Gemini settings saved on this device."
+                    } else {
+                        "Gemini API key removed."
+                    }
+                )
+            }
+        }
+    }
+
+    fun toggleAiAutoTag(enabled: Boolean) {
+        _settingsExtra.update { it.copy(aiAutoTagUploads = enabled) }
+        viewModelScope.launch {
+            repository.setSetting("aiAutoTagUploads", enabled.toString())
+        }
+    }
+
+    fun scanLibraryWithAi() {
+        if (_settingsExtra.value.isAiTagging) return
+        val key = _settingsExtra.value.geminiApiKey.trim()
+        if (key.isEmpty()) {
+            _settingsExtra.update { it.copy(aiTagStatus = "Add and save your Gemini API key first.") }
+            return
+        }
+
+        viewModelScope.launch {
+            val pending = repository.pageDao.getAllPages().filter { page ->
+                val hasImage = (page.imageUrl.isNotBlank() && File(page.imageUrl).exists()) ||
+                    (!page.thumbnailUrl.isNullOrBlank() && File(page.thumbnailUrl).exists())
+                hasImage && page.aiScannedAt == null
+            }
+            if (pending.isEmpty()) {
+                _settingsExtra.update {
+                    it.copy(aiTagStatus = "All locally available images have already been AI-scanned.")
+                }
+                return@launch
+            }
+
+            _settingsExtra.update {
+                it.copy(
+                    isAiTagging = true,
+                    aiTagDone = 0,
+                    aiTagTotal = pending.size,
+                    aiTagStatus = "Scanning your library…"
+                )
+            }
+
+            val suggestions = mutableListOf<PendingAiSuggestion>()
+            var failed = 0
+            for ((index, page) in pending.withIndex()) {
+                _settingsExtra.update {
+                    it.copy(aiTagStatus = "Scanning ${index + 1} of ${pending.size}: ${page.title.ifBlank { "Untitled" }}")
+                }
+                try {
+                    val tags = repository.suggestTagsForPage(page, key)
+                    suggestions.add(PendingAiSuggestion(page = page, tags = tags))
+                } catch (_: Exception) {
+                    failed++
+                }
+                _settingsExtra.update { it.copy(aiTagDone = index + 1) }
+            }
+
+            if (suggestions.isNotEmpty()) {
+                _settingsExtra.update {
+                    it.copy(
+                        isAiTagging = false,
+                        pendingAiSuggestions = suggestions,
+                        aiTagStatus = "Ready to review ${suggestions.size} suggestions.${if (failed > 0) " $failed failed." else ""}"
+                    )
+                }
+            } else {
+                _settingsExtra.update {
+                    it.copy(
+                        isAiTagging = false,
+                        aiTagStatus = "No suggestions were generated. $failed files failed to scan; check your connection and API key, then retry."
+                    )
+                }
+            }
+        }
+    }
+
+    fun confirmApplyAiSuggestions() {
+        val suggestions = _settingsExtra.value.pendingAiSuggestions ?: return
+        viewModelScope.launch {
+            for (item in suggestions) {
+                repository.applyAiTagSuggestions(item.page, item.tags)
+            }
+            _settingsExtra.update {
+                it.copy(
+                    pendingAiSuggestions = null,
+                    aiTagStatus = "Applied AI tags to ${suggestions.size} files."
+                )
+            }
+        }
+    }
+
+    fun dismissAiSuggestions() {
+        val count = _settingsExtra.value.pendingAiSuggestions?.size ?: 0
+        _settingsExtra.update {
+            it.copy(
+                pendingAiSuggestions = null,
+                aiTagStatus = "Scanned $count files. No tags were changed; run the scan again whenever you are ready to apply them."
+            )
+        }
+    }
+
+    // ---------- Wipe ----------
+
+    fun setWipeStep(step: Int) {
+        _modalState.update {
+            it.copy(
+                wipeStep = step,
+                wipeError = if (step == 0) null else it.wipeError
+            )
+        }
+    }
+
+    fun setDeleteCloud(checked: Boolean) {
+        _modalState.update { it.copy(deleteCloud = checked) }
+    }
+
+    fun setConfirmDeleteText(text: String) {
+        _modalState.update { it.copy(confirmDeleteText = text) }
+    }
 
     fun wipeApp() {
-        if (_confirmDeleteText.value != "DELETE") return
+        if (_modalState.value.confirmDeleteText != "DELETE") return
         viewModelScope.launch {
-            if (_deleteCloud.value) {
+            if (_modalState.value.deleteCloud) {
                 val cloudDeleted = repository.trashCloudFolder()
                 if (!cloudDeleted) {
-                    _wipeError.value = "Google Drive could not be cleared. Your local library was left untouched. Check your connection and Drive access, then try again."
+                    _modalState.update {
+                        it.copy(
+                            wipeError = "Google Drive could not be cleared. Your local library was left untouched. Check your connection and Drive access, then try again."
+                        )
+                    }
                     return@launch
                 }
             }
             repository.wipeAllData()
-            _wipeError.value = null
-            _selectedTag.value = null
-            _wipeStep.value = 0
-            _confirmDeleteText.value = ""
-            _deleteCloud.value = false
-            _isSettingsOpen.value = false
+            _filterState.update { it.copy(activeTags = emptySet(), activeCategoryId = null, showNoTagsOnly = false) }
+            _modalState.update {
+                it.copy(
+                    wipeError = null,
+                    wipeStep = 0,
+                    confirmDeleteText = "",
+                    deleteCloud = false,
+                    isSettingsOpen = false
+                )
+            }
+            refreshSettingsMetadata()
         }
     }
 
-    fun importFiles(uris: List<Uri>, removeWhiteBackground: Boolean = true) {
-        viewModelScope.launch {
-            _isProcessingAdd.value = true
-            _addProgressPercent.value = 0
-            val total = uris.size
+    // ---------- Imports (Picker + Shared Intents) ----------
 
+    fun importFiles(uris: List<Uri>, removeWhiteBackground: Boolean = true) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _modalState.update { it.copy(isProcessingAdd = true, addProgressPercent = 0) }
+            val total = uris.size
             for ((index, uri) in uris.withIndex()) {
                 repository.importUri(uri, removeWhiteBackground) { text, percent ->
-                    _addProgressText.value = text
                     val overall = ((index * 100) + percent) / total
-                    _addProgressPercent.value = overall
+                    _modalState.update {
+                        it.copy(addProgressText = text, addProgressPercent = overall)
+                    }
                 }
             }
-            _addProgressPercent.value = 100
+            _modalState.update { it.copy(addProgressPercent = 100) }
             kotlinx.coroutines.delay(400)
-            _isProcessingAdd.value = false
-            _isAddModalOpen.value = false
+            _modalState.update { it.copy(isProcessingAdd = false, isAddModalOpen = false) }
+            refreshSettingsMetadata()
+        }
+    }
+
+    fun importSharedUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _modalState.update { it.copy(importStatus = "Importing ${uris.size} shared file(s)…") }
+            var imported = 0
+            for (uri in uris) {
+                runCatching {
+                    repository.importUri(uri, removeWhiteBackground = true) { text, _ ->
+                        _modalState.update { it.copy(importStatus = text) }
+                    }
+                    imported++
+                }
+            }
+            _modalState.update {
+                it.copy(importStatus = "Imported $imported shared file${if (imported == 1) "" else "s"}.")
+            }
+            refreshSettingsMetadata()
+            kotlinx.coroutines.delay(5000)
+            _modalState.update { it.copy(importStatus = "") }
         }
     }
 }
