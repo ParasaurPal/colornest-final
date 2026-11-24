@@ -9,7 +9,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -19,6 +30,7 @@ import com.yourname.colornest.ui.viewmodel.ColorNestViewModel
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ColorNestViewModel by viewModels()
+    private val incomingSharedImage = mutableStateOf<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,7 +44,49 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             ColorNestTheme(darkTheme = uiState.isDarkMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    HomeScreen(viewModel = viewModel)
+                    androidx.compose.foundation.layout.Box {
+                        HomeScreen(viewModel = viewModel)
+                        incomingSharedImage.value?.let { sharedUri ->
+                            AlertDialog(
+                                onDismissRequest = { incomingSharedImage.value = null },
+                                title = { Text("Where should this image go?", fontWeight = FontWeight.Bold) },
+                                text = { Text("Choose whether this is a page you still want to color, finished artwork for your Showcase, or an original image to send directly to a coloring app. Saving either option makes a separate copy in ColorNest and leaves the original untouched.") },
+                                confirmButton = {
+                                    Column(
+                                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                viewModel.importSharedImage(sharedUri, false)
+                                                incomingSharedImage.value = null
+                                            },
+                                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = com.yourname.colornest.ui.theme.PurplePrimary)
+                                        ) { Text("Add as coloring page") }
+                                        Button(
+                                            onClick = {
+                                                viewModel.importSharedImage(sharedUri, true)
+                                                incomingSharedImage.value = null
+                                            },
+                                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = com.yourname.colornest.ui.theme.PurplePrimary)
+                                        ) { Text("Add finished page to Showcase") }
+                                        TextButton(
+                                            onClick = {
+                                                shareOriginalForColoring(sharedUri)
+                                                incomingSharedImage.value = null
+                                            },
+                                            modifier = androidx.compose.ui.Modifier.fillMaxWidth()
+                                        ) { Text("Share original for coloring") }
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { incomingSharedImage.value = null }) { Text("Cancel") }
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -63,9 +117,22 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        if (uris.isNotEmpty()) {
+        if (uris.size == 1 && intent.type?.startsWith("image/") == true) {
+            incomingSharedImage.value = uris.first()
+        } else if (uris.isNotEmpty()) {
             viewModel.importSharedUris(uris.toList())
         }
+    }
+
+    private fun shareOriginalForColoring(uri: Uri) {
+        val mimeType = contentResolver.getType(uri) ?: "image/*"
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newUri(contentResolver, "Original coloring image", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(sendIntent, "Choose a coloring app"))
     }
 
     @Suppress("DEPRECATION")
