@@ -989,13 +989,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         val suggestions = _settingsExtra.value.pendingAiSuggestions ?: return
         viewModelScope.launch {
             for (item in suggestions) {
-                repository.applyAiTagSuggestions(item.page, item.tags)
-                val current = repository.pageDao.getPageById(item.page.id) ?: continue
-                repository.pageDao.updatePage(current.copy(
-                    categoryId = item.categoryId,
-                    isUncategorized = false,
-                    updatedAt = System.currentTimeMillis()
-                ))
+                repository.applyAiTagSuggestions(item.page, item.tags, item.categoryId)
             }
             _settingsExtra.update {
                 it.copy(
