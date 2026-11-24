@@ -198,7 +198,7 @@ fun HomeScreen(
                                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                val currentCategoryName = when (uiState.activeCategoryId) {
+                                val currentCategoryName = if (showShowcase) "Showcase" else when (uiState.activeCategoryId) {
                                     -1L -> "Untagged"
                                     null -> "All Pages"
                                     else -> uiState.categories.find { it.id == uiState.activeCategoryId }?.name ?: "Category"
