@@ -729,7 +729,7 @@ fun HomeScreen(
                 }
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    if (uiState.filteredPages.isEmpty()) {
+                    if (visiblePages.isEmpty()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
