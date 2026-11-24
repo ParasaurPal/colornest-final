@@ -901,6 +901,17 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    private fun buildCategoryPath(categoryId: Long, categories: List<Category>): String {
+        val byId = categories.associateBy { it.id }
+        val names = mutableListOf<String>()
+        var current = byId[categoryId]
+        while (current != null) {
+            names.add(0, current.name)
+            current = current.parentId?.let { byId[it] }
+        }
+        return names.joinToString(" / ").ifBlank { "Category" }
+    }
+
     fun scanLibraryWithAi() {
         if (_settingsExtra.value.isAiTagging) return
         val key = _settingsExtra.value.geminiApiKey.trim()
@@ -947,7 +958,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
                 try {
                     val tags = if (page.aiScannedAt == null) repository.suggestTagsForPage(page, key) else page.aiSuggestedTags
                     val category = repository.suggestCategoryForPage(page, key, allCategories, learning)
-                    val categoryName = allCategories.firstOrNull { it.id == category.categoryId }?.name ?: "Category"
+                    val categoryName = buildCategoryPath(category.categoryId, allCategories)
                     suggestions.add(PendingAiSuggestion(page, tags, category.categoryId, categoryName, category.reason))
                 } catch (_: Exception) {
                     failed++
