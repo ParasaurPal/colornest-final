@@ -245,11 +245,14 @@ class ColorNestRepository(private val context: Context) {
             .getOrNull()?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
         val suggestion = suggestCategoryForPage(page.copy(tags = (page.tags + tags).distinct()), apiKey, categories, learning)
         val fresh = pageDao.getPageById(page.id) ?: return
-        pageDao.updatePage(fresh.copy(
+        val updated = fresh.copy(
             categoryId = suggestion.categoryId,
             isUncategorized = false,
             updatedAt = System.currentTimeMillis()
-        ))
+        )
+        pageDao.updatePage(updated)
+        driveSyncManager.propagatePageChange(updated)
+        ColorNestDocumentsProvider.notifyChanged(context)
     }
 
     suspend fun suggestCategoryForPage(
