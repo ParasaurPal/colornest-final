@@ -235,6 +235,23 @@ class ColorNestRepository(private val context: Context) {
     }
 
 
+
+    private suspend fun autoTagAndSortPage(page: Page, apiKey: String) {
+        val tags = suggestTagsForPage(page, apiKey)
+        applyAiTagSuggestions(page, tags)
+        val categories = categoryDao.getAllCategories()
+        if (categories.isEmpty()) return
+        val learning = runCatching { JSONArray(settingDao.getSetting("aiCategoryLearning").orEmpty()) }
+            .getOrNull()?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
+        val suggestion = suggestCategoryForPage(page.copy(tags = (page.tags + tags).distinct()), apiKey, categories, learning)
+        val fresh = pageDao.getPageById(page.id) ?: return
+        pageDao.updatePage(fresh.copy(
+            categoryId = suggestion.categoryId,
+            isUncategorized = false,
+            updatedAt = System.currentTimeMillis()
+        ))
+    }
+
     suspend fun suggestCategoryForPage(
         page: Page, apiKey: String, categories: List<Category>, learningExamples: List<String>
     ): AiTaggingService.CategorySuggestion {
@@ -491,11 +508,7 @@ class ColorNestRepository(private val context: Context) {
                     )
                     if (autoTagEnabled) {
                         runCatching {
-                            val page = pageDao.getPageById(insertedId)
-                            if (page != null) {
-                                val tags = suggestTagsForPage(page, geminiKey)
-                                applyAiTagSuggestions(page, tags)
-                            }
+                            pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it, geminiKey) }
                         }
                     }
                     ColorNestDocumentsProvider.notifyChanged(context)
@@ -570,11 +583,7 @@ class ColorNestRepository(private val context: Context) {
 
                 if (autoTagEnabled) {
                     runCatching {
-                        val savedPage = pageDao.getPageById(insertedId)
-                        if (savedPage != null) {
-                            val tags = suggestTagsForPage(savedPage, geminiKey)
-                            applyAiTagSuggestions(savedPage, tags)
-                        }
+                        pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it, geminiKey) }
                     }
                 }
             }
