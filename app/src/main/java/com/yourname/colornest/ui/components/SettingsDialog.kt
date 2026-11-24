@@ -745,7 +745,7 @@ fun SettingsDialog(
             onDismissRequest = onDismissAiSuggestions,
             title = {
                 Text(
-                    text = "Review AI Tag Suggestions (${suggestions.size})",
+                    text = "Review AI Tag & Category Suggestions (${suggestions.size})",
                     fontWeight = FontWeight.Bold
                 )
             },
