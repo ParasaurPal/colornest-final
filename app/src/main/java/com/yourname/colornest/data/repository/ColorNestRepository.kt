@@ -31,6 +31,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.util.UUID
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -131,6 +133,9 @@ class ColorNestRepository(private val context: Context) {
         isCompleted: Boolean? = null
     ) = withContext(Dispatchers.IO) {
         val page = pageDao.getPageById(pageId) ?: return@withContext
+        if (page.categoryId != null && newCategoryId != null && page.categoryId != newCategoryId && page.aiScannedAt != null) {
+            saveCategoryLearningExample(page, newCategoryId)
+        }
         val mergedTags = LinkedHashSet<String>()
         tags.map { it.trim() }.filter { it.isNotEmpty() }.forEach { mergedTags.add(it) }
         if (newCategoryId != null) {
@@ -227,6 +232,39 @@ class ColorNestRepository(private val context: Context) {
             }
         }
         ColorNestDocumentsProvider.notifyChanged(context)
+    }
+
+
+    suspend fun suggestCategoryForPage(
+        page: Page, apiKey: String, categories: List<Category>, learningExamples: List<String>
+    ): AiTaggingService.CategorySuggestion {
+        val imagePath = page.imageUrl.takeIf { it.isNotBlank() && File(it).exists() }
+            ?: page.thumbnailUrl?.takeIf { File(it).exists() }
+            ?: throw IllegalStateException("This page has no locally stored image to sort.")
+        val byId = categories.associateBy { it.id }
+        fun path(category: Category): String {
+            val names = mutableListOf(category.name)
+            var parent = category.parentId?.let { byId[it] }
+            while (parent != null) { names.add(0, parent.name); parent = parent.parentId?.let { byId[it] } }
+            return names.joinToString(" / ")
+        }
+        val details = page.title + if (page.tags.isNotEmpty()) " | tags: ${page.tags.joinToString(", ")}" else ""
+        return AiTaggingService.suggestPageCategory(
+            apiKey, imagePath, details, categories.map { it.id to path(it) }, learningExamples
+        )
+    }
+
+    suspend fun saveCategoryLearningExample(page: Page, chosenCategoryId: Long) = withContext(Dispatchers.IO) {
+        val category = categoryDao.getCategoryById(chosenCategoryId) ?: return@withContext
+        val byId = categoryDao.getAllCategories().associateBy { it.id }
+        val names = mutableListOf(category.name)
+        var parent = category.parentId?.let { byId[it] }
+        while (parent != null) { names.add(0, parent.name); parent = parent.parentId?.let { byId[it] } }
+        val stored = runCatching { JSONArray(settingDao.getSetting("aiCategoryLearning").orEmpty()) }.getOrDefault(JSONArray())
+        val updated = JSONArray()
+        for (i in (stored.length() - 39).coerceAtLeast(0) until stored.length()) updated.put(stored.optString(i))
+        updated.put("${page.title.take(80)} | tags: ${page.tags.take(8).joinToString(", ")} => ${names.joinToString(" / ")}")
+        settingDao.setSetting(Setting(key = "aiCategoryLearning", value = updated.toString()))
     }
 
     suspend fun suggestTagsForPage(page: Page, apiKey: String): List<String> {
