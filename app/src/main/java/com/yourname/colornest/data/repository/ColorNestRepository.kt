@@ -214,18 +214,20 @@ class ColorNestRepository(private val context: Context) {
 
     // ---------- AI subject tagging ----------
 
-    suspend fun applyAiTagSuggestions(page: Page, suggestedTags: List<String>) = withContext(Dispatchers.IO) {
+    suspend fun applyAiTagSuggestions(page: Page, suggestedTags: List<String>, categoryId: Long? = null) = withContext(Dispatchers.IO) {
         val clean = suggestedTags.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
         val merged = (page.tags + clean).distinct()
         val now = System.currentTimeMillis()
-        pageDao.updatePage(
-            page.copy(
-                tags = merged,
-                aiSuggestedTags = clean,
-                aiScannedAt = now,
-                updatedAt = now
-            )
+        val updated = page.copy(
+            tags = merged,
+            aiSuggestedTags = clean,
+            aiScannedAt = now,
+            categoryId = categoryId ?: page.categoryId,
+            isUncategorized = if (categoryId != null) false else page.isUncategorized,
+            updatedAt = now
         )
+        pageDao.updatePage(updated)
+        driveSyncManager.propagatePageChange(updated)
         clean.forEach { name ->
             if (tagDao.getTagByName(name) == null) {
                 tagDao.insertTag(TagEntity(name = name, createdAt = now))
