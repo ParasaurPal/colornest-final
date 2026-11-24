@@ -459,6 +459,35 @@ class ColorNestRepository(private val context: Context) {
         ColorNestDocumentsProvider.notifyChanged(context)
     }
 
+
+    suspend fun importSharedImage(uri: Uri, asFinished: Boolean): Long = withContext(Dispatchers.IO) {
+        val originalName = getFileName(uri)
+        val extension = originalName.substringAfterLast('.', "jpg").lowercase()
+            .takeIf { it.matches(Regex("[a-z0-9]{2,5}")) } ?: "jpg"
+        val destination = File(imagesDir, "shared_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.$extension")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(destination).use { output -> input.copyTo(output) }
+        } ?: throw IllegalStateException("ColorNest couldn't open the shared image.")
+        val thumbnail = ImageProcessor.tryCreateThumbnailFromFile(destination, thumbsDir, "shared")
+        val now = System.currentTimeMillis()
+        val id = pageDao.insertPage(
+            Page(
+                title = originalName.substringBeforeLast('.').ifBlank { if (asFinished) "Finished artwork" else "Shared coloring page" },
+                imageUrl = destination.absolutePath,
+                thumbnailUrl = thumbnail,
+                isCompleted = asFinished,
+                isUncategorized = true,
+                whiteBackgroundProcessed = false,
+                whiteBackgroundVersion = 0,
+                syncId = UUID.randomUUID().toString(),
+                createdAt = now,
+                updatedAt = now
+            )
+        )
+        ColorNestDocumentsProvider.notifyChanged(context)
+        id
+    }
+
     // ---------- Import Images & PDFs ----------
 
     suspend fun importUri(
