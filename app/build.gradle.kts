@@ -22,21 +22,12 @@ android {
     }
 
 
-    val ciKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
-    val ciKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-    val ciKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
-    val ciKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-
-    if (!ciKeystorePath.isNullOrBlank() &&
-        !ciKeystorePassword.isNullOrBlank() &&
-        !ciKeyAlias.isNullOrBlank() &&
-        !ciKeyPassword.isNullOrBlank()
-    ) {
-        signingConfigs.create("ci") {
-            storeFile = file(ciKeystorePath)
-            storePassword = ciKeystorePassword
-            keyAlias = ciKeyAlias
-            keyPassword = ciKeyPassword
+    signingConfigs {
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
@@ -49,13 +40,7 @@ android {
             )
         }
         debug {
-            if (!ciKeystorePath.isNullOrBlank() &&
-                !ciKeystorePassword.isNullOrBlank() &&
-                !ciKeyAlias.isNullOrBlank() &&
-                !ciKeyPassword.isNullOrBlank()
-            ) {
-                signingConfig = signingConfigs.getByName("ci")
-            }
+            signingConfig = signingConfigs.getByName("debugConfig")
         }
     }
 
