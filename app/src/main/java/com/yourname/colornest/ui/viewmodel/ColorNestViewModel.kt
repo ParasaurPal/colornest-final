@@ -1076,6 +1076,47 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
 
+    fun generateAiColoringPage(uri: Uri) {
+        if (_modalState.value.isProcessingAdd) return
+        viewModelScope.launch {
+            _modalState.update {
+                it.copy(
+                    isProcessingAdd = true,
+                    addProgressPercent = 8,
+                    addProgressText = "Preparing your image for Gemini…",
+                    isAddModalOpen = true
+                )
+            }
+            try {
+                _modalState.update {
+                    it.copy(addProgressPercent = 25, addProgressText = "AI is redrawing your image as coloring-book artwork…")
+                }
+                repository.generateAiColoringPage(uri)
+                _modalState.update {
+                    it.copy(
+                        addProgressPercent = 100,
+                        addProgressText = "Your AI coloring page has been saved!"
+                    )
+                }
+                refreshSettingsMetadata()
+                kotlinx.coroutines.delay(900)
+                _modalState.update {
+                    it.copy(isProcessingAdd = false, isAddModalOpen = false, addProgressText = "")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _modalState.update {
+                    it.copy(
+                        isProcessingAdd = false,
+                        addProgressPercent = 0,
+                        addProgressText = "AI coloring-page creation failed: ${e.localizedMessage ?: "Please try again."}"
+                    )
+                }
+            }
+        }
+    }
+
     fun importSharedImage(uri: Uri, asFinished: Boolean) {
         viewModelScope.launch {
             _modalState.update { it.copy(importStatus = if (asFinished) "Adding finished artwork to Showcase…" else "Adding coloring page to your library…") }
