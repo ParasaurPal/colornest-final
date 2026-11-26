@@ -210,7 +210,7 @@ fun SettingsDialog(
                             Text("4. Search, favorites, and viewing", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("Tap any page thumbnail to open the fullscreen viewer with pinch-to-zoom. Dark mode displays coloring line art inverted for comfortable viewing.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("5. Open from or send to other apps", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Tap Open or Share inside ColorNest to send a page to Clip Studio Paint or another drawing app as a new image. When opening files inside another app, choose ColorNest in Android Files or image picker.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Tap Open or Share inside ColorNest to send a page to Sketchbook, Clip Studio Paint, or another drawing app, or use normal Android sharing. When opening files inside another app, choose ColorNest in Android Files or image picker.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("6. Backups & Google Drive", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text("Export a JSON backup anytime or connect Google Drive to browse files, import fast previews, and download full-resolution pages on demand.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }

@@ -131,7 +131,7 @@ fun OnboardingDialog(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "Import photos or PDF coloring books, then sort them with custom titles, tags, and deeply nested folders (like Animals > Birds > Owls).\n\n" +
-                                        "When you are ready to color digitally, open or share any page directly as a new image into drawing apps like Clip Studio Paint.",
+                                        "When you are ready to color digitally, open or share any page directly as a new image into drawing apps like Sketchbook or Clip Studio Paint.",
                                 fontSize = 14.sp,
                                 lineHeight = 20.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

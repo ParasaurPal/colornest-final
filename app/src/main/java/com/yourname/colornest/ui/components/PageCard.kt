@@ -84,6 +84,8 @@ import java.io.File
 
 private const val FILE_PROVIDER_AUTHORITY = "com.yourname.colornest.fileprovider"
 
+private const val SKETCHBOOK_PACKAGE = "com.parasaurpal.sketchbook"
+
 private val CLIP_STUDIO_PACKAGES = listOf(
     "jp.co.celsys.clipstudiopaint.googleplay",
     "jp.co.celsys.clipstudiopaint.galaxystore",
@@ -571,6 +573,59 @@ fun SharePageDialog(
                 Button(
                     onClick = {
                         withReadyImageFile { file ->
+                            if (openInPackage(context, file.absolutePath, page.title, SKETCHBOOK_PACKAGE)) {
+                                onDismiss()
+                            } else {
+                                val message = if (isPackageInstalled(context, SKETCHBOOK_PACKAGE)) {
+                                    "Sketchbook could not open this image directly."
+                                } else {
+                                    "Sketchbook ($SKETCHBOOK_PACKAGE) is not installed on this device."
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    enabled = !isFetchingDriveFile,
+                    colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("share_sketchbook_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Brush,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open in Sketchbook", fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        withReadyImageFile { file ->
+                            shareViaSystemSheet(context, file.absolutePath, page.title)
+                            onDismiss()
+                        }
+                    },
+                    enabled = !isFetchingDriveFile,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("share_system_sheet_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Share", fontWeight = FontWeight.SemiBold)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        withReadyImageFile { file ->
                             val launched = openInClipStudioAsNewImage(
                                 context = context,
                                 imagePath = file.absolutePath,
@@ -585,7 +640,6 @@ fun SharePageDialog(
                         }
                     },
                     enabled = !isFetchingDriveFile,
-                    colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -597,13 +651,13 @@ fun SharePageDialog(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Clip Studio Paint (New Image)", fontWeight = FontWeight.Bold)
+                    Text("Clip Studio Paint (New Image)")
                 }
 
                 OutlinedButton(
                     onClick = {
                         withReadyImageFile { file ->
-                            openAsNewImage(context, file.absolutePath, page.title)
+                            openWithSystemChooser(context, file.absolutePath, page.title)
                             onDismiss()
                         }
                     },
@@ -677,28 +731,6 @@ fun SharePageDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Save to Pictures/ColorNest")
                 }
-
-                OutlinedButton(
-                    onClick = {
-                        withReadyImageFile { file ->
-                            shareViaSystemSheet(context, file.absolutePath, page.title)
-                            onDismiss()
-                        }
-                    },
-                    enabled = !isFetchingDriveFile,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("share_system_sheet_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("System Share Sheet (Layer / File)")
-                }
             }
         },
         confirmButton = {
@@ -739,20 +771,20 @@ private fun buildViewOrEditIntent(
     }
 }
 
-private fun findInstalledClipStudioPackage(context: Context): String? {
+private fun isPackageInstalled(context: Context, packageName: String): Boolean {
     val pm = context.packageManager
-    for (pkg in CLIP_STUDIO_PACKAGES) {
-        val installed = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getPackageInfo(pkg, 0)
-            }
-        }.isSuccess
-        if (installed) return pkg
-    }
-    return null
+    return runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(packageName, 0)
+        }
+    }.isSuccess
+}
+
+private fun findInstalledClipStudioPackage(context: Context): String? {
+    return CLIP_STUDIO_PACKAGES.firstOrNull { isPackageInstalled(context, it) }
 }
 
 private fun canResolveIntent(context: Context, intent: Intent): Boolean {
@@ -833,7 +865,47 @@ private fun openInClipStudioAsNewImage(
     }
 }
 
+private fun openInPackage(
+    context: Context,
+    imagePath: String,
+    title: String,
+    targetPackage: String
+): Boolean {
+    if (!isPackageInstalled(context, targetPackage)) return false
+    val (uri, mimeType) = buildPageUri(context, imagePath) ?: return false
+    val label = title.ifBlank { "Coloring Page" }
+
+    val editIntent = buildViewOrEditIntent(context, Intent.ACTION_EDIT, uri, mimeType, label, targetPackage)
+    if (canResolveIntent(context, editIntent)) {
+        if (runCatching { context.startActivity(editIntent) }.isSuccess) return true
+    }
+
+    val viewIntent = buildViewOrEditIntent(context, Intent.ACTION_VIEW, uri, mimeType, label, targetPackage)
+    if (canResolveIntent(context, viewIntent)) {
+        if (runCatching { context.startActivity(viewIntent) }.isSuccess) return true
+    }
+
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TITLE, label)
+        clipData = ClipData.newUri(context.contentResolver, label, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        setPackage(targetPackage)
+        context.grantUriPermission(targetPackage, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    if (canResolveIntent(context, sendIntent)) {
+        if (runCatching { context.startActivity(sendIntent) }.isSuccess) return true
+    }
+
+    return false
+}
+
 private fun openAsNewImage(context: Context, imagePath: String, title: String) {
+    openWithSystemChooser(context, imagePath, title)
+}
+
+private fun openWithSystemChooser(context: Context, imagePath: String, title: String) {
     val (uri, mimeType) = buildPageUri(context, imagePath) ?: return
     val label = title.ifBlank { "Coloring Page" }
 
