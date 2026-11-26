@@ -57,8 +57,8 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
-            echo "Android signing secrets are missing."
-            exit 1
+            echo "::warning::Stable Android signing secrets are not configured. Continuing with the standard debug signing key; APK updates across clean CI runners will require configuring the stable signing secrets."
+            exit 0
           fi
           KEYSTORE_PATH="$RUNNER_TEMP/colornest-signing.jks"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
