@@ -10,6 +10,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.PrepopulateCategories
+import com.yourname.colornest.data.ai.AiColoringPageService
 import com.yourname.colornest.data.ai.AiTaggingService
 import com.yourname.colornest.data.backup.BackupManager
 import com.yourname.colornest.data.drive.DriveBrowserEntry
@@ -487,6 +488,53 @@ class ColorNestRepository(private val context: Context) {
         )
         ColorNestDocumentsProvider.notifyChanged(context)
         id
+    }
+
+    /**
+     * Uses Gemini to redraw an arbitrary selected image as proper coloring-book artwork,
+     * then stores the generated PNG as a new library page. The source image is never changed.
+     */
+    suspend fun generateAiColoringPage(uri: Uri): Long = withContext(Dispatchers.IO) {
+        val fileName = getFileName(uri)
+        val source = context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it)
+        } ?: throw IllegalStateException("ColorNest couldn't read the selected image.")
+
+        val generated = try {
+            AiColoringPageService.createColoringPage(source)
+        } finally {
+            source.recycle()
+        }
+
+        try {
+            val processed = ImageProcessor.processBitmapAndSave(
+                bitmap = generated,
+                imagesDir = imagesDir,
+                thumbsDir = thumbsDir,
+                baseName = "ai_coloring_page",
+                removeWhitePaper = false
+            )
+            val titleBase = fileName.substringBeforeLast('.', fileName)
+                .ifBlank { "AI Coloring Page" }
+            val now = System.currentTimeMillis()
+            val id = pageDao.insertPage(
+                Page(
+                    title = "$titleBase (AI Coloring Page)",
+                    imageUrl = processed.imagePath,
+                    thumbnailUrl = processed.thumbnailPath,
+                    isUncategorized = true,
+                    whiteBackgroundProcessed = false,
+                    whiteBackgroundVersion = 0,
+                    syncId = UUID.randomUUID().toString(),
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+            ColorNestDocumentsProvider.notifyChanged(context)
+            id
+        } finally {
+            generated.recycle()
+        }
     }
 
     // ---------- Import Images & PDFs ----------
