@@ -290,6 +290,16 @@ fun AddPageDialog(
                         }
                     }
 
+                    if (!isProcessing && progressText.startsWith("AI coloring-page creation failed:")) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = progressText,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // AI image-to-image coloring page generator
