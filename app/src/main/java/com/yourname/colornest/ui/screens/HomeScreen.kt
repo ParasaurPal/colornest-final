@@ -924,6 +924,7 @@ fun HomeScreen(
         progressText = uiState.addProgressText,
         progressPercent = uiState.addProgressPercent,
         onFilesSelected = { uris, removeWhite -> viewModel.importFiles(uris, removeWhite) },
+        onAiImageSelected = { uri -> viewModel.generateAiColoringPage(uri) },
         onClose = { viewModel.setAddModalOpen(false) }
     )
 
