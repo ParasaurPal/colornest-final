@@ -496,9 +496,24 @@ class ColorNestRepository(private val context: Context) {
      */
     suspend fun generateAiColoringPage(uri: Uri): Long = withContext(Dispatchers.IO) {
         val fileName = getFileName(uri)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        } ?: throw IllegalStateException("ColorNest couldn't open the selected image.")
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw IllegalStateException("The selected file is not a supported image.")
+        }
+        var sampleSize = 1
+        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 1536) {
+            sampleSize *= 2
+        }
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
         val source = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it)
-        } ?: throw IllegalStateException("ColorNest couldn't read the selected image.")
+            BitmapFactory.decodeStream(it, null, decodeOptions)
+        } ?: throw IllegalStateException("ColorNest couldn't decode the selected image.")
 
         val generated = try {
             AiColoringPageService.createColoringPage(source)
