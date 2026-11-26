@@ -6,6 +6,17 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
+val stableSigningPath = System.getenv("ANDROID_KEYSTORE_PATH")
+val localDebugKeystore = file("${rootDir}/debug.keystore").takeIf { it.exists() }
+val debugSigningStore = stableSigningPath?.takeIf { it.isNotBlank() }?.let { file(it) }
+    ?: localDebugKeystore
+val debugSigningStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    ?: if (localDebugKeystore != null) "android" else null
+val debugSigningKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+    ?: if (localDebugKeystore != null) "androiddebugkey" else null
+val debugSigningKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+    ?: if (localDebugKeystore != null) "android" else null
+
 android {
     namespace = "com.yourname.colornest"
     compileSdk = 36
@@ -23,11 +34,17 @@ android {
 
 
     signingConfigs {
-        create("debugConfig") {
-            storeFile = file("${rootDir}/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (debugSigningStore != null &&
+            debugSigningStorePassword != null &&
+            debugSigningKeyAlias != null &&
+            debugSigningKeyPassword != null
+        ) {
+            create("debugConfig") {
+                storeFile = debugSigningStore
+                storePassword = debugSigningStorePassword
+                keyAlias = debugSigningKeyAlias
+                keyPassword = debugSigningKeyPassword
+            }
         }
     }
 
@@ -40,7 +57,15 @@ android {
             )
         }
         debug {
-            signingConfig = signingConfigs.getByName("debugConfig")
+            // Use the configured stable key when available. Otherwise AGP uses its
+            // normal local/CI debug key so compilation is not blocked by absent secrets.
+            if (debugSigningStore != null &&
+                debugSigningStorePassword != null &&
+                debugSigningKeyAlias != null &&
+                debugSigningKeyPassword != null
+            ) {
+                signingConfig = signingConfigs.getByName("debugConfig")
+            }
         }
     }
 
