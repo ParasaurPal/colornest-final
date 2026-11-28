@@ -659,69 +659,79 @@ class ColorNestRepository(private val context: Context) {
             FileOutputStream(tempPdfFile).use { output ->
                 input.copyTo(output)
             }
-        } ?: return
+        } ?: throw IllegalStateException("ColorNest couldn't read the selected PDF.")
 
         try {
             val fileDescriptor = ParcelFileDescriptor.open(tempPdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val pdfRenderer = PdfRenderer(fileDescriptor)
-            val pageCount = pdfRenderer.pageCount
+            try {
+                val pdfRenderer = PdfRenderer(fileDescriptor)
+                try {
+                    val pageCount = pdfRenderer.pageCount
+                    if (pageCount <= 0) throw IllegalStateException("The selected PDF contains no pages.")
 
-            for (i in 0 until pageCount) {
-                val percent = ((i + 1) * 100) / pageCount.coerceAtLeast(1)
-                onProgress(
-                    if (autoTagEnabled) "Saving & tagging page ${i + 1} of $pageCount..."
-                    else "Converting page ${i + 1} of $pageCount...",
-                    percent
-                )
+                    for (i in 0 until pageCount) {
+                        onProgress(
+                            if (autoTagEnabled) "Saving & tagging page ${i + 1} of $pageCount..."
+                            else "Converting page ${i + 1} of $pageCount...",
+                            ((i + 1) * 100) / pageCount
+                        )
 
-                val page = pdfRenderer.openPage(i)
-                val maxPdfSide = max(page.width, page.height).coerceAtLeast(1)
-                val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
-                val w = (page.width * scale).roundToInt().coerceAtLeast(1)
-                val h = (page.height * scale).roundToInt().coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(AndroidColor.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
+                        val page = pdfRenderer.openPage(i)
+                        try {
+                            val maxPdfSide = max(page.width, page.height).coerceAtLeast(1)
+                            val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
+                            val width = (page.width * scale).roundToInt().coerceAtLeast(1)
+                            val height = (page.height * scale).roundToInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            val processed = try {
+                                bitmap.eraseColor(AndroidColor.WHITE)
+                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                ImageProcessor.processBitmapAndSave(
+                                    bitmap = bitmap,
+                                    imagesDir = imagesDir,
+                                    thumbsDir = thumbsDir,
+                                    baseName = "pdf_page",
+                                    removeWhitePaper = removeWhiteBackground
+                                )
+                            } finally {
+                                bitmap.recycle()
+                            }
 
-                val processed = ImageProcessor.processBitmapAndSave(
-                    bitmap = bitmap,
-                    imagesDir = imagesDir,
-                    thumbsDir = thumbsDir,
-                    baseName = "pdf_page",
-                    removeWhitePaper = removeWhiteBackground
-                )
-                bitmap.recycle()
+                            val now = System.currentTimeMillis()
+                            val insertedId = pageDao.insertPage(
+                                Page(
+                                    title = "$baseTitle - Page ${i + 1}",
+                                    imageUrl = processed.imagePath,
+                                    thumbnailUrl = processed.thumbnailPath,
+                                    isUncategorized = true,
+                                    whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                                    whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                                    syncId = UUID.randomUUID().toString(),
+                                    createdAt = now,
+                                    updatedAt = now
+                                )
+                            )
 
-                val now = System.currentTimeMillis()
-                val insertedId = pageDao.insertPage(
-                    Page(
-                        title = "$baseTitle - Page ${i + 1}",
-                        imageUrl = processed.imagePath,
-                        thumbnailUrl = processed.thumbnailPath,
-                        isUncategorized = true,
-                        whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
-                        whiteBackgroundVersion = processed.whiteBackgroundVersion,
-                        syncId = UUID.randomUUID().toString(),
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                )
-
-                if (autoTagEnabled) {
-                    try {
-                        pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e("ColorNestRepository", "Auto-tag failed for PDF page $insertedId", e)
+                            if (autoTagEnabled) {
+                                try {
+                                    pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.e("ColorNestRepository", "Auto-tag failed for PDF page $insertedId", e)
+                                }
+                            }
+                        } finally {
+                            page.close()
+                        }
                     }
+                    ColorNestDocumentsProvider.notifyChanged(context)
+                } finally {
+                    pdfRenderer.close()
                 }
+            } finally {
+                fileDescriptor.close()
             }
-
-            pdfRenderer.close()
-            fileDescriptor.close()
-            ColorNestDocumentsProvider.notifyChanged(context)
         } finally {
             tempPdfFile.delete()
         }
