@@ -8,6 +8,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.room.withTransaction
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.PrepopulateCategories
 import com.yourname.colornest.data.ai.AiColoringPageService
@@ -408,19 +409,46 @@ class ColorNestRepository(private val context: Context) {
 
     suspend fun importBackup(uri: Uri) = withContext(Dispatchers.IO) {
         val restored = BackupManager.parseAndExtractFromUri(context, uri, imagesDir, thumbsDir)
-        pageDao.deleteAllPages()
-        categoryDao.deleteAllCategories()
-        tagDao.deleteAllTags()
+        val previousFiles = pageDao.getAllPages().flatMap { page ->
+            listOfNotNull(page.imageUrl.takeIf { it.isNotBlank() }, page.thumbnailUrl?.takeIf { it.isNotBlank() })
+        }.toSet()
+        val restoredFiles = restored.pages.flatMap { page ->
+            listOfNotNull(page.imageUrl.takeIf { it.isNotBlank() }, page.thumbnailUrl?.takeIf { it.isNotBlank() })
+        }.toSet()
 
-        // Preserve category parent relationships cleanly while letting Room re-assign or keep IDs
-        if (restored.categories.isNotEmpty()) {
-            categoryDao.insertCategories(restored.categories)
+        try {
+            // Keep the existing library intact unless every restored database write succeeds.
+            db.withTransaction {
+                pageDao.deleteAllPages()
+                categoryDao.deleteAllCategories()
+                tagDao.deleteAllTags()
+
+                if (restored.categories.isNotEmpty()) {
+                    categoryDao.insertCategories(restored.categories)
+                }
+                if (restored.pages.isNotEmpty()) {
+                    pageDao.insertPages(restored.pages)
+                }
+                if (restored.tags.isNotEmpty()) {
+                    tagDao.insertTags(restored.tags)
+                }
+            }
+        } catch (error: Exception) {
+            // The extracted files belong to this failed restore; remove them without touching
+            // any files that were already part of the user's library.
+            (restoredFiles - previousFiles).forEach { path ->
+                runCatching { File(path).takeIf { it.isFile }?.delete() }
+            }
+            throw error
         }
-        if (restored.pages.isNotEmpty()) {
-            pageDao.insertPages(restored.pages)
-        }
-        if (restored.tags.isNotEmpty()) {
-            tagDao.insertTags(restored.tags)
+
+        // Delete superseded local images only after the Room transaction commits.
+        val managedRoot = imagesDir.canonicalPath + File.separator
+        (previousFiles - restoredFiles).forEach { path ->
+            runCatching {
+                val file = File(path).canonicalFile
+                if (file.path.startsWith(managedRoot) && file.isFile) file.delete()
+            }
         }
         ColorNestDocumentsProvider.notifyChanged(context)
     }
