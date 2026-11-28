@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
@@ -601,53 +600,49 @@ class ColorNestRepository(private val context: Context) {
             convertPdfToPages(uri, baseTitle, removeWhiteBackground, autoTagEnabled, onProgress)
         } else {
             onProgress("Processing image...", 40)
-            var inputStream: InputStream? = null
+            val bitmap = decodeSampledBitmap(uri)
+                ?: throw IllegalStateException("The selected file is not a supported image.")
             try {
-                inputStream = context.contentResolver.openInputStream(uri)
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                if (bitmap != null) {
-                    onProgress(if (autoTagEnabled) "Saving & tagging image..." else "Saving image...", 75)
-                    val processed = ImageProcessor.processBitmapAndSave(
-                        bitmap = bitmap,
-                        imagesDir = imagesDir,
-                        thumbsDir = thumbsDir,
-                        baseName = "img",
-                        removeWhitePaper = removeWhiteBackground
-                    )
-                    bitmap.recycle()
+                onProgress(if (autoTagEnabled) "Saving & tagging image..." else "Saving image...", 75)
+                val processed = ImageProcessor.processBitmapAndSave(
+                    bitmap = bitmap,
+                    imagesDir = imagesDir,
+                    thumbsDir = thumbsDir,
+                    baseName = "img",
+                    removeWhitePaper = removeWhiteBackground
+                )
 
-                    val cleanTitle = if (fileName.contains('.')) {
-                        fileName.substringBeforeLast('.').ifBlank { "Untitled page" }
-                    } else {
-                        fileName.ifBlank { "Untitled page" }
-                    }
-                    val now = System.currentTimeMillis()
-                    val insertedId = pageDao.insertPage(
-                        Page(
-                            title = cleanTitle,
-                            imageUrl = processed.imagePath,
-                            thumbnailUrl = processed.thumbnailPath,
-                            isUncategorized = true,
-                            whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
-                            whiteBackgroundVersion = processed.whiteBackgroundVersion,
-                            syncId = UUID.randomUUID().toString(),
-                            createdAt = now,
-                            updatedAt = now
-                        )
-                    )
-                    if (autoTagEnabled) {
-                        try {
-                            pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e("ColorNestRepository", "Auto-tag failed for imported image $insertedId", e)
-                        }
-                    }
-                    ColorNestDocumentsProvider.notifyChanged(context)
+                val cleanTitle = if (fileName.contains('.')) {
+                    fileName.substringBeforeLast('.').ifBlank { "Untitled page" }
+                } else {
+                    fileName.ifBlank { "Untitled page" }
                 }
+                val now = System.currentTimeMillis()
+                val insertedId = pageDao.insertPage(
+                    Page(
+                        title = cleanTitle,
+                        imageUrl = processed.imagePath,
+                        thumbnailUrl = processed.thumbnailPath,
+                        isUncategorized = true,
+                        whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                        whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                        syncId = UUID.randomUUID().toString(),
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+                if (autoTagEnabled) {
+                    try {
+                        pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e("ColorNestRepository", "Auto-tag failed for imported image $insertedId", e)
+                    }
+                }
+                ColorNestDocumentsProvider.notifyChanged(context)
             } finally {
-                inputStream?.close()
+                bitmap.recycle()
             }
         }
     }
@@ -729,6 +724,26 @@ class ColorNestRepository(private val context: Context) {
             ColorNestDocumentsProvider.notifyChanged(context)
         } finally {
             tempPdfFile.delete()
+        }
+    }
+
+    private fun decodeSampledBitmap(uri: Uri, maxDimension: Int = 2500): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        } ?: return null
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sampleSize = 1
+        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > maxDimension) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, options)
         }
     }
 
