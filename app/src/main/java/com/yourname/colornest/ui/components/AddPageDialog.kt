@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
@@ -56,7 +55,6 @@ fun AddPageDialog(
     progressText: String,
     progressPercent: Int,
     onFilesSelected: (List<Uri>, Boolean) -> Unit,
-    onAiImageSelected: (Uri) -> Unit,
     onClose: () -> Unit
 ) {
     if (!isOpen) return
@@ -77,12 +75,6 @@ fun AddPageDialog(
         if (uris.isNotEmpty()) {
             onFilesSelected(uris, removeWhiteBackground)
         }
-    }
-
-    val aiImagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        uri?.let(onAiImageSelected)
     }
 
     Dialog(onDismissRequest = { if (!isProcessing) onClose() }) {
