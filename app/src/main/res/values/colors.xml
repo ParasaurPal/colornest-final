@@ -8,6 +8,6 @@
     <color name="bg_dark">#121212</color>
     <color name="surface_light">#FFFFFF</color>
     <color name="surface_dark">#1E1E1E</color>
-    <color name="ic_launcher_bg">#000000</color>
-    <color name="ic_launcher_background">#000000</color>
+    <color name="ic_launcher_bg">#C8A2C8</color>
+    <color name="ic_launcher_background">#C8A2C8</color>
 </resources>
