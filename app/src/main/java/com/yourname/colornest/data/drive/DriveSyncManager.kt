@@ -714,13 +714,10 @@ class DriveSyncManager(
             categoryId = ensureLocalCategoryPath(metadata.categoryPath)
         }
 
-        val thumbBytes = remote.thumbnailLink?.let { fetchUrlBytesWithCredential(it) }
-        var thumbPath: String? = null
-        if (thumbBytes != null && thumbBytes.isNotEmpty()) {
-            val thumbFile = File(thumbsDir, "drive_prev_${remote.id}_${System.currentTimeMillis()}.png")
-            FileOutputStream(thumbFile).use { it.write(thumbBytes) }
-            thumbPath = thumbFile.absolutePath
-        }
+        // Every imported preview is materialized into app-private storage before it
+        // enters Room. The gallery must never need a Drive URL or network request.
+        val thumbPath = createLocalPreviewFile(service, remote)
+            ?: throw IllegalStateException("Could not create an on-device preview for ${remote.name}")
 
         val importedTags = includeCategoryTag(categoryId, metadata?.tags.orEmpty())
         val title = metadata?.title?.takeIf { it.isNotBlank() }
@@ -747,6 +744,57 @@ class DriveSyncManager(
                 updatedAt = metadata?.updatedAt ?: System.currentTimeMillis()
             )
         )
+    }
+
+    private fun createLocalPreviewFile(service: Drive, remote: RemoteFile): String? {
+        val suffix = if (remote.mimeType == "application/pdf"" || remote.name.endsWith(".pdf", true)) "pdf" else "img"
+        val source = File(context.cacheDir, "colornest_preview_${remote.id}.$suffix")
+        val output = File(thumbsDir, "drive_prev_${remote.id}_${System.currentTimeMillis()}.jpg")
+        var bitmap: Bitmap? = null
+        return try {
+            downloadFile(service, remote.id, source)
+            if (suffix == "pdf") {
+                val descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+                try {
+                    val renderer = PdfRenderer(descriptor)
+                    try {
+                        if (renderer.pageCount <= 0) return null
+                        val page = renderer.openPage(0)
+                        try {
+                            val maxSide = max(page.width, page.height).coerceAtLeast(1)
+                            val scale = min(1.5f, 1400f / maxSide.toFloat()).coerceAtLeast(0.5f)
+                            val width = (page.width * scale).roundToInt().coerceAtLeast(1)
+                            val height = (page.height * scale).roundToInt().coerceAtLeast(1)
+                            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            bitmap!!.eraseColor(AndroidColor.WHITE)
+                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        } finally {
+                            page.close()
+                        }
+                    } finally {
+                        renderer.close()
+                    }
+                } finally {
+                    descriptor.close()
+                }
+            } else {
+                bitmap = decodeSampledBitmapFile(source, maxDimension = 1600)
+            }
+            val preview = bitmap ?: return null
+            FileOutputStream(output).use { stream ->
+                if (!preview.compress(Bitmap.CompressFormat.JPEG, 88, stream)) {
+                    throw IllegalStateException("Preview image encoding failed")
+                }
+                stream.flush()
+            }
+            output.absolutePath
+        } catch (_: Exception) {
+            output.delete()
+            null
+        } finally {
+            bitmap?.recycle()
+            source.delete()
+        }
     }
 
     private suspend fun includeCategoryTag(categoryId: Long?, existingTags: List<String>): List<String> {
