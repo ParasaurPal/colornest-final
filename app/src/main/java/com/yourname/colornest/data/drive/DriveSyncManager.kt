@@ -541,61 +541,68 @@ class DriveSyncManager(
         val tempPdf = File(context.cacheDir, "drive_pdf_${System.currentTimeMillis()}.pdf")
         try {
             downloadFile(service, entry.id, tempPdf)
+            var pageCount = 0
             val descriptor = ParcelFileDescriptor.open(tempPdf, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(descriptor)
-            val pageCount = renderer.pageCount
-            if (pageCount <= 0) {
-                renderer.close()
+            try {
+                val renderer = PdfRenderer(descriptor)
+                try {
+                    pageCount = renderer.pageCount
+                    if (pageCount <= 0) throw IllegalStateException("The PDF did not contain any pages.")
+
+                    val baseTitle = entry.name.replace(Regex("\\.pdf$", RegexOption.IGNORE_CASE), "").ifBlank { "Imported PDF" }
+                    val pdfTags = includeCategoryTag(entry.categoryId, emptyList())
+                    val now = System.currentTimeMillis()
+
+                    for (i in 0 until pageCount) {
+                        val pdfPage = renderer.openPage(i)
+                        try {
+                            val maxPdfSide = max(pdfPage.width, pdfPage.height).coerceAtLeast(1)
+                            val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
+                            val width = (pdfPage.width * scale).roundToInt().coerceAtLeast(1)
+                            val height = (pdfPage.height * scale).roundToInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            val processed = try {
+                                bitmap.eraseColor(AndroidColor.WHITE)
+                                pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                ImageProcessor.processBitmapAndSave(
+                                    bitmap = bitmap,
+                                    imagesDir = imagesDir,
+                                    thumbsDir = thumbsDir,
+                                    baseName = "drive_pdf",
+                                    removeWhitePaper = true
+                                )
+                            } finally {
+                                bitmap.recycle()
+                            }
+
+                            pageDao.insertPage(
+                                Page(
+                                    title = "$baseTitle - Page ${i + 1}",
+                                    categoryId = entry.categoryId,
+                                    imageUrl = processed.imagePath,
+                                    thumbnailUrl = processed.thumbnailPath,
+                                    isUncategorized = entry.categoryId == null,
+                                    tags = pdfTags,
+                                    whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                                    whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                                    syncId = UUID.randomUUID().toString(),
+                                    createdAt = now,
+                                    updatedAt = now
+                                )
+                            )
+                        } finally {
+                            pdfPage.close()
+                        }
+                    }
+                } finally {
+                    renderer.close()
+                }
+            } finally {
                 descriptor.close()
-                throw IllegalStateException("The PDF did not contain any pages.")
             }
-
-            val baseTitle = entry.name.replace(Regex("\\.pdf$", RegexOption.IGNORE_CASE), "").ifBlank { "Imported PDF" }
-            val pdfTags = includeCategoryTag(entry.categoryId, emptyList())
-            val now = System.currentTimeMillis()
-
-            for (i in 0 until pageCount) {
-                val pdfPage = renderer.openPage(i)
-                val maxPdfSide = max(pdfPage.width, pdfPage.height).coerceAtLeast(1)
-                val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
-                val w = (pdfPage.width * scale).roundToInt().coerceAtLeast(1)
-                val h = (pdfPage.height * scale).roundToInt().coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(AndroidColor.WHITE)
-                pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                pdfPage.close()
-
-                val processed = ImageProcessor.processBitmapAndSave(
-                    bitmap = bitmap,
-                    imagesDir = imagesDir,
-                    thumbsDir = thumbsDir,
-                    baseName = "drive_pdf",
-                    removeWhitePaper = true
-                )
-                bitmap.recycle()
-
-                pageDao.insertPage(
-                    Page(
-                        title = "$baseTitle - Page ${i + 1}",
-                        categoryId = entry.categoryId,
-                        imageUrl = processed.imagePath,
-                        thumbnailUrl = processed.thumbnailPath,
-                        isUncategorized = entry.categoryId == null,
-                        tags = pdfTags,
-                        whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
-                        whiteBackgroundVersion = processed.whiteBackgroundVersion,
-                        syncId = UUID.randomUUID().toString(),
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                )
-            }
-
-            renderer.close()
-            descriptor.close()
 
             if (existingPreview != null) {
-                existingPreview.thumbnailUrl?.let { File(it).takeIf { f -> f.exists() }?.delete() }
+                existingPreview.thumbnailUrl?.let { File(it).takeIf { file -> file.isFile }?.delete() }
                 pageDao.deletePage(existingPreview)
             }
             processedPdfIds.add(entry.id)
