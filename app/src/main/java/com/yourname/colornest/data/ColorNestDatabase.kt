@@ -82,8 +82,6 @@ abstract class ColorNestDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE pages ADD COLUMN whiteBackgroundProcessed INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE pages ADD COLUMN whiteBackgroundVersion INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE pages ADD COLUMN syncId TEXT")
-                db.execSQL("ALTER TABLE pages ADD COLUMN aiSuggestedTags TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE pages ADD COLUMN aiScannedAt INTEGER")
                 db.execSQL("ALTER TABLE pages ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE pages SET updatedAt = createdAt WHERE updatedAt = 0")
 
