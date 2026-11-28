@@ -269,6 +269,24 @@ class DriveSyncManager(
                         it.name.endsWith(".pdf", ignoreCase = true))
             }
 
+            // Repair older preview-only rows that were saved without a usable
+            // local file. This runs only during a user-requested Drive sync.
+            val remoteById = remoteMedia.associateBy { it.id }
+            for (page in pages.filter { it.isPreviewOnly }) {
+                val localImage = page.imageUrl.takeIf { it.isNotBlank() }?.let(::File)
+                val localThumb = page.thumbnailUrl?.takeIf { it.isNotBlank() }?.let(::File)
+                if (localImage?.isFile == true || localThumb?.isFile == true) continue
+                val remote = page.driveFileId?.let(remoteById::get) ?: continue
+                val localPath = createLocalPreviewFile(service, remote) ?: continue
+                pageDao.updatePage(
+                    page.copy(
+                        imageUrl = localPath,
+                        thumbnailUrl = localPath,
+                        driveThumbnailLink = null
+                    )
+                )
+            }
+
             for ((index, remote) in remoteMedia.withIndex()) {
                 val pct = 45 + (((index + 1) * 50) / remoteMedia.size.coerceAtLeast(1))
                 _scanProgress.value = ScanProgress(active = true, percent = pct, message = "Importing previews ${index + 1} of ${remoteMedia.size}")
@@ -512,7 +530,7 @@ class DriveSyncManager(
                     imageUrl = processed.imagePath,
                     thumbnailUrl = processed.thumbnailPath,
                     isPreviewOnly = false,
-                    driveThumbnailLink = entry.thumbnailLink,
+                    driveThumbnailLink = null,
                     isFavorite = meta?.isFavorite ?: false,
                     isCompleted = meta?.isCompleted ?: false,
                     progress = meta?.progress ?: 0,
@@ -647,11 +665,6 @@ class DriveSyncManager(
         Pair(added, isPdf)
     }
 
-    suspend fun fetchTempPreviewBytes(page: Page): ByteArray? = withContext(Dispatchers.IO) {
-        val link = largeThumbnailUrl(page.driveThumbnailLink) ?: return@withContext null
-        fetchUrlBytesWithCredential(link)
-    }
-
     suspend fun fetchThumbnailBytes(thumbnailLink: String?): ByteArray? = withContext(Dispatchers.IO) {
         if (thumbnailLink.isNullOrBlank()) return@withContext null
         fetchUrlBytesWithCredential(thumbnailLink)
@@ -733,7 +746,7 @@ class DriveSyncManager(
                 imageUrl = thumbPath ?: "",
                 thumbnailUrl = thumbPath,
                 isPreviewOnly = true,
-                driveThumbnailLink = remote.thumbnailLink,
+                driveThumbnailLink = null,
                 isFavorite = metadata?.isFavorite ?: false,
                 isCompleted = metadata?.isCompleted ?: false,
                 progress = metadata?.progress ?: 0,
