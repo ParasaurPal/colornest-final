@@ -501,20 +501,12 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
     // ---------- In-app Fullscreen Page Viewer ----------
 
     fun openPageViewer(page: Page) {
+        // Preview-only entries already contain an app-private local image.
+        // Opening the viewer must remain instant and work fully offline.
         _viewerState.value = ViewerUiState(
             page = page,
-            isTempPreviewLoading = page.isPreviewOnly
+            isTempPreviewLoading = false
         )
-        if (page.isPreviewOnly) {
-            viewModelScope.launch {
-                val bytes = repository.fetchTempPreviewBytes(page)
-                _viewerState.update { current ->
-                    if (current.page?.id == page.id) {
-                        current.copy(tempPreviewBytes = bytes, isTempPreviewLoading = false)
-                    } else current
-                }
-            }
-        }
     }
 
     fun closePageViewer() {
