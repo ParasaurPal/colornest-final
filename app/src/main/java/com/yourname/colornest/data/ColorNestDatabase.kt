@@ -63,7 +63,6 @@ abstract class ColorNestDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("DROP TABLE pages")
                 db.execSQL("ALTER TABLE pages_new RENAME TO pages")
-                db.execSQL("DELETE FROM settings WHERE key IN ('aiAutoTagUploads', 'aiCategoryLearning')")
                 db.execSQL("DROP TABLE IF EXISTS learned_patterns")
             }
         }
@@ -146,6 +145,7 @@ abstract class ColorNestDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("DROP TABLE pages")
                 db.execSQL("ALTER TABLE pages_new RENAME TO pages")
+                db.execSQL("DELETE FROM settings WHERE key IN ('aiAutoTagUploads', 'aiCategoryLearning')")
             }
         }
 
