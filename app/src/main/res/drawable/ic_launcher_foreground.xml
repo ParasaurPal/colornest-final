@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/colornest_icon_lilac"
+        android:drawable="@drawable/colornest_icon_foreground_1795492295190"
         android:gravity="center" />
 </layer-list>
