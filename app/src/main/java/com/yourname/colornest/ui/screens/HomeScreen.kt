@@ -924,7 +924,6 @@ fun HomeScreen(
         progressText = uiState.addProgressText,
         progressPercent = uiState.addProgressPercent,
         onFilesSelected = { uris, removeWhite -> viewModel.importFiles(uris, removeWhite) },
-        onAiImageSelected = { uri -> viewModel.generateAiColoringPage(uri) },
         onClose = { viewModel.setAddModalOpen(false) }
     )
 
@@ -964,10 +963,6 @@ fun HomeScreen(
         onDisconnectDrive = { viewModel.disconnectDrive() },
         onSetDriveScanOnOpen = { viewModel.setDriveScanOnOpen(it) },
         onRefreshDriveSettings = { viewModel.refreshDriveSettings() },
-        onToggleAiAutoTag = { viewModel.toggleAiAutoTag(it) },
-        onScanLibraryWithAi = { viewModel.scanLibraryWithAi() },
-        onConfirmApplyAiSuggestions = { viewModel.confirmApplyAiSuggestions() },
-        onDismissAiSuggestions = { viewModel.dismissAiSuggestions() },
         onClearAllTags = { viewModel.clearAllTags() },
         onSetWipeStep = { viewModel.setWipeStep(it) },
         onSetDeleteCloud = { viewModel.setDeleteCloud(it) },
