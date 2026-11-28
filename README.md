@@ -22,7 +22,6 @@ ColorNest is a native Android **Kotlin & Jetpack Compose** coloring-page library
 
 ## Building
 
-No Firebase or AI configuration is required.
 
 ```sh
 ./gradlew :app:assembleDebug
