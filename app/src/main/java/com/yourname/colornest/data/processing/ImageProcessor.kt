@@ -106,12 +106,15 @@ object ImageProcessor {
                 source
             }
 
-            val file = File(thumbsDir, "${baseName}_thumb_${System.currentTimeMillis()}_${(100..999).random()}.png")
-            FileOutputStream(file).use { out ->
-                thumbBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            try {
+                val file = File(thumbsDir, "${baseName}_thumb_${System.currentTimeMillis()}_${(100..999).random()}.png")
+                FileOutputStream(file).use { out ->
+                    thumbBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                file.absolutePath
+            } finally {
+                if (thumbBitmap !== source) thumbBitmap.recycle()
             }
-            if (thumbBitmap !== source) thumbBitmap.recycle()
-            file.absolutePath
         }.getOrNull()
     }
 
@@ -128,7 +131,7 @@ object ImageProcessor {
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
             var inSampleSize = 1
-            while ((bounds.outWidth / inSampleSize) > maxSize * 2 &&
+            while ((bounds.outWidth / inSampleSize) > maxSize * 2 ||
                 (bounds.outHeight / inSampleSize) > maxSize * 2
             ) {
                 inSampleSize *= 2
