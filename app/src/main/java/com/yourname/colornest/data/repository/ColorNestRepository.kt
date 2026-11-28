@@ -7,12 +7,9 @@ import android.graphics.Color as AndroidColor
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import androidx.room.withTransaction
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.PrepopulateCategories
-import com.yourname.colornest.data.ai.AiColoringPageService
-import com.yourname.colornest.data.ai.AiTaggingService
 import com.yourname.colornest.data.backup.BackupManager
 import com.yourname.colornest.data.drive.DriveBrowserEntry
 import com.yourname.colornest.data.drive.DriveSyncManager
@@ -20,7 +17,6 @@ import com.yourname.colornest.data.drive.ScanProgress
 import com.yourname.colornest.data.drive.SyncResult
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
-import com.yourname.colornest.data.model.Setting
 import com.yourname.colornest.data.model.TagEntity
 import com.yourname.colornest.data.processing.DuplicateFinder
 import com.yourname.colornest.data.processing.DuplicateGroup
@@ -34,7 +30,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
-import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.max
 import kotlin.math.min
@@ -136,9 +131,6 @@ class ColorNestRepository(private val context: Context) {
         isCompleted: Boolean? = null
     ) = withContext(Dispatchers.IO) {
         val page = pageDao.getPageById(pageId) ?: return@withContext
-        if (page.categoryId != null && newCategoryId != null && page.categoryId != newCategoryId && page.aiScannedAt != null) {
-            saveCategoryLearningExample(page, newCategoryId)
-        }
         val mergedTags = LinkedHashSet<String>()
         tags.map { it.trim() }.filter { it.isNotEmpty() }.forEach { mergedTags.add(it) }
         if (newCategoryId != null) {
@@ -217,93 +209,6 @@ class ColorNestRepository(private val context: Context) {
         pageDao.clearAllTags(System.currentTimeMillis())
         tagDao.deleteAllTags()
         ColorNestDocumentsProvider.notifyChanged(context)
-    }
-
-    // ---------- AI subject tagging ----------
-
-    suspend fun applyAiTagSuggestions(page: Page, suggestedTags: List<String>, categoryId: Long? = null) = withContext(Dispatchers.IO) {
-        val clean = suggestedTags.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
-        val merged = (page.tags + clean).distinct()
-        val now = System.currentTimeMillis()
-        val updated = page.copy(
-            tags = merged,
-            aiSuggestedTags = clean,
-            aiScannedAt = now,
-            categoryId = categoryId ?: page.categoryId,
-            isUncategorized = if (categoryId != null) false else page.isUncategorized,
-            updatedAt = now
-        )
-        pageDao.updatePage(updated)
-        driveSyncManager.propagatePageChange(updated)
-        clean.forEach { name ->
-            if (tagDao.getTagByName(name) == null) {
-                tagDao.insertTag(TagEntity(name = name, createdAt = now))
-            }
-        }
-        ColorNestDocumentsProvider.notifyChanged(context)
-    }
-
-
-
-    private suspend fun autoTagAndSortPage(page: Page) {
-        val tags = suggestTagsForPage(page)
-        applyAiTagSuggestions(page, tags)
-        val categories = categoryDao.getAllCategories()
-        if (categories.isEmpty()) return
-        val learning = runCatching { JSONArray(settingDao.getSetting("aiCategoryLearning").orEmpty()) }
-            .getOrNull()?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
-        val suggestion = suggestCategoryForPage(page.copy(tags = (page.tags + tags).distinct()), categories, learning)
-        val fresh = pageDao.getPageById(page.id) ?: return
-        val updated = fresh.copy(
-            categoryId = suggestion.categoryId,
-            isUncategorized = false,
-            updatedAt = System.currentTimeMillis()
-        )
-        pageDao.updatePage(updated)
-        driveSyncManager.propagatePageChange(updated)
-        ColorNestDocumentsProvider.notifyChanged(context)
-    }
-
-    suspend fun suggestCategoryForPage(
-        page: Page, categories: List<Category>, learningExamples: List<String>
-    ): AiTaggingService.CategorySuggestion {
-        val imagePath = page.imageUrl.takeIf { it.isNotBlank() && File(it).exists() }
-            ?: page.thumbnailUrl?.takeIf { File(it).exists() }
-            ?: throw IllegalStateException("This page has no locally stored image to sort.")
-        val byId = categories.associateBy { it.id }
-        fun path(category: Category): String {
-            val names = mutableListOf(category.name)
-            var parent = category.parentId?.let { byId[it] }
-            while (parent != null) { names.add(0, parent.name); parent = parent.parentId?.let { byId[it] } }
-            return names.joinToString(" / ")
-        }
-        val details = page.title + if (page.tags.isNotEmpty()) " | tags: ${page.tags.joinToString(", ")}" else ""
-        return AiTaggingService.suggestPageCategory(
-            imagePath, details, categories.map { it.id to path(it) }, learningExamples
-        )
-    }
-
-    suspend fun saveCategoryLearningExample(page: Page, chosenCategoryId: Long) = withContext(Dispatchers.IO) {
-        val category = categoryDao.getCategoryById(chosenCategoryId) ?: return@withContext
-        val byId = categoryDao.getAllCategories().associateBy { it.id }
-        val names = mutableListOf(category.name)
-        var parent = category.parentId?.let { byId[it] }
-        while (parent != null) { names.add(0, parent.name); parent = parent.parentId?.let { byId[it] } }
-        val stored = runCatching { JSONArray(settingDao.getSetting("aiCategoryLearning").orEmpty()) }.getOrDefault(JSONArray())
-        val updated = JSONArray()
-        for (i in (stored.length() - 39).coerceAtLeast(0) until stored.length()) updated.put(stored.optString(i))
-        updated.put("${page.title.take(80)} | tags: ${page.tags.take(8).joinToString(", ")} => ${names.joinToString(" / ")}")
-        settingDao.setSetting(Setting(key = "aiCategoryLearning", value = updated.toString()))
-    }
-
-    suspend fun suggestTagsForPage(page: Page): List<String> {
-        val imagePath = page.imageUrl.takeIf { it.isNotBlank() && File(it).exists() }
-            ?: page.thumbnailUrl?.takeIf { File(it).exists() }
-            ?: throw IllegalStateException("This page has no locally stored image to scan.")
-        return AiTaggingService.suggestPageTags(
-            imagePath = imagePath,
-            fileName = page.title
-        )
     }
 
     // ---------- Backfill, batch processing, duplicates, storage ----------
@@ -521,68 +426,6 @@ class ColorNestRepository(private val context: Context) {
         id
     }
 
-    /**
-     * Uses Gemini to redraw an arbitrary selected image as proper coloring-book artwork,
-     * then stores the generated PNG as a new library page. The source image is never changed.
-     */
-    suspend fun generateAiColoringPage(uri: Uri): Long = withContext(Dispatchers.IO) {
-        val fileName = getFileName(uri)
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        } ?: throw IllegalStateException("ColorNest couldn't open the selected image.")
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-            throw IllegalStateException("The selected file is not a supported image.")
-        }
-        var sampleSize = 1
-        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 1536) {
-            sampleSize *= 2
-        }
-        val decodeOptions = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        val source = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, decodeOptions)
-        } ?: throw IllegalStateException("ColorNest couldn't decode the selected image.")
-
-        val generated = try {
-            AiColoringPageService.createColoringPage(source)
-        } finally {
-            source.recycle()
-        }
-
-        try {
-            val processed = ImageProcessor.processBitmapAndSave(
-                bitmap = generated,
-                imagesDir = imagesDir,
-                thumbsDir = thumbsDir,
-                baseName = "ai_coloring_page",
-                removeWhitePaper = false
-            )
-            val titleBase = fileName.substringBeforeLast('.', fileName)
-                .ifBlank { "AI Coloring Page" }
-            val now = System.currentTimeMillis()
-            val id = pageDao.insertPage(
-                Page(
-                    title = "$titleBase (AI Coloring Page)",
-                    imageUrl = processed.imagePath,
-                    thumbnailUrl = processed.thumbnailPath,
-                    isUncategorized = true,
-                    whiteBackgroundProcessed = false,
-                    whiteBackgroundVersion = 0,
-                    syncId = UUID.randomUUID().toString(),
-                    createdAt = now,
-                    updatedAt = now
-                )
-            )
-            ColorNestDocumentsProvider.notifyChanged(context)
-            id
-        } finally {
-            generated.recycle()
-        }
-    }
-
     // ---------- Import Images & PDFs ----------
 
     suspend fun importUri(
@@ -592,18 +435,17 @@ class ColorNestRepository(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val mimeType = context.contentResolver.getType(uri) ?: ""
         val fileName = getFileName(uri)
-        val autoTagEnabled = settingDao.getSetting("aiAutoTagUploads") == "true"
 
         if (mimeType.contains("pdf", ignoreCase = true) || fileName.endsWith(".pdf", ignoreCase = true)) {
             onProgress("Reading PDF...", 10)
             val baseTitle = fileName.replace(Regex("\\.pdf$", RegexOption.IGNORE_CASE), "").ifBlank { "Imported PDF" }
-            convertPdfToPages(uri, baseTitle, removeWhiteBackground, autoTagEnabled, onProgress)
+            convertPdfToPages(uri, baseTitle, removeWhiteBackground, onProgress)
         } else {
             onProgress("Processing image...", 40)
             val bitmap = decodeSampledBitmap(uri)
                 ?: throw IllegalStateException("The selected file is not a supported image.")
             try {
-                onProgress(if (autoTagEnabled) "Saving & tagging image..." else "Saving image...", 75)
+                onProgress("Saving image...", 75)
                 val processed = ImageProcessor.processBitmapAndSave(
                     bitmap = bitmap,
                     imagesDir = imagesDir,
@@ -618,7 +460,7 @@ class ColorNestRepository(private val context: Context) {
                     fileName.ifBlank { "Untitled page" }
                 }
                 val now = System.currentTimeMillis()
-                val insertedId = pageDao.insertPage(
+                pageDao.insertPage(
                     Page(
                         title = cleanTitle,
                         imageUrl = processed.imagePath,
@@ -631,15 +473,6 @@ class ColorNestRepository(private val context: Context) {
                         updatedAt = now
                     )
                 )
-                if (autoTagEnabled) {
-                    try {
-                        pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e("ColorNestRepository", "Auto-tag failed for imported image $insertedId", e)
-                    }
-                }
                 ColorNestDocumentsProvider.notifyChanged(context)
             } finally {
                 bitmap.recycle()
@@ -651,7 +484,6 @@ class ColorNestRepository(private val context: Context) {
         uri: Uri,
         baseTitle: String,
         removeWhiteBackground: Boolean,
-        autoTagEnabled: Boolean,
         onProgress: (text: String, percent: Int) -> Unit
     ) {
         val tempPdfFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}.pdf")
@@ -671,8 +503,7 @@ class ColorNestRepository(private val context: Context) {
 
                     for (i in 0 until pageCount) {
                         onProgress(
-                            if (autoTagEnabled) "Saving & tagging page ${i + 1} of $pageCount..."
-                            else "Converting page ${i + 1} of $pageCount...",
+                            "Converting page ${i + 1} of $pageCount...",
                             ((i + 1) * 100) / pageCount
                         )
 
@@ -698,7 +529,7 @@ class ColorNestRepository(private val context: Context) {
                             }
 
                             val now = System.currentTimeMillis()
-                            val insertedId = pageDao.insertPage(
+                            pageDao.insertPage(
                                 Page(
                                     title = "$baseTitle - Page ${i + 1}",
                                     imageUrl = processed.imagePath,
@@ -712,15 +543,6 @@ class ColorNestRepository(private val context: Context) {
                                 )
                             )
 
-                            if (autoTagEnabled) {
-                                try {
-                                    pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    Log.e("ColorNestRepository", "Auto-tag failed for PDF page $insertedId", e)
-                                }
-                            }
                         } finally {
                             page.close()
                         }
