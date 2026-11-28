@@ -17,12 +17,12 @@ import com.yourname.colornest.data.drive.ScanProgress
 import com.yourname.colornest.data.drive.SyncResult
 import com.yourname.colornest.data.model.Category
 import com.yourname.colornest.data.model.Page
+import com.yourname.colornest.data.model.Setting
 import com.yourname.colornest.data.model.TagEntity
 import com.yourname.colornest.data.processing.DuplicateFinder
 import com.yourname.colornest.data.processing.DuplicateGroup
 import com.yourname.colornest.data.processing.ImageProcessor
 import com.yourname.colornest.provider.ColorNestDocumentsProvider
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
