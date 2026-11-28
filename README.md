@@ -13,7 +13,7 @@ ColorNest is a native Android **Kotlin & Jetpack Compose** coloring-page library
   - Expose saved local pages to external drawing apps via `PickPageActivity` (`GET_CONTENT` / `PICK`) and `ColorNestDocumentsProvider` (Android Storage Access Framework).
 - **Backups & Duplicate Finder**: Export and restore portable JSON backups (`ColorNest backup` format) and detect/remove byte-identical duplicate images (SHA-256) while keeping preferred categorized/favorite copies.
 - **Google Drive Sync & Browser**: Connect your Google account (`DriveConnectActivity`) to browse your `ColorNest` Drive folder, import lightweight previews on launch or on demand, process the `PDF Inbox`, and download full-resolution pages on demand.
-- **Optional AI Subject Tagging**: Supply your own Gemini API key in Settings (stored locally on device) to auto-tag uploads or batch-scan existing pages with a review confirmation step.
+- **Optional Firebase AI features**: AI tagging and coloring-page generation use Firebase AI Logic. A project-specific `app/google-services.json` is required to enable them; it is intentionally not committed. The offline library, image processing, backups, and Google Drive features can still be built without that optional file.
 
 ## Architecture & Tech Stack
 
@@ -24,6 +24,8 @@ ColorNest is a native Android **Kotlin & Jetpack Compose** coloring-page library
 
 ## Building
 
+The Firebase configuration is optional for offline and Drive builds. Add your own `app/google-services.json` locally only if you want Firebase AI features. Do not commit that file.
+
 ```sh
-gradle :app:assembleDebug
+./gradlew :app:assembleDebug
 ```
