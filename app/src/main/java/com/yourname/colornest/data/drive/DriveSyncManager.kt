@@ -747,7 +747,7 @@ class DriveSyncManager(
     }
 
     private fun createLocalPreviewFile(service: Drive, remote: RemoteFile): String? {
-        val suffix = if (remote.mimeType == "application/pdf"" || remote.name.endsWith(".pdf", true)) "pdf" else "img"
+        val suffix = if (remote.mimeType == "application/pdf" || remote.name.endsWith(".pdf", true)) "pdf" else "img"
         val source = File(context.cacheDir, "colornest_preview_${remote.id}.$suffix")
         val output = File(thumbsDir, "drive_prev_${remote.id}_${System.currentTimeMillis()}.jpg")
         var bitmap: Bitmap? = null
@@ -765,9 +765,10 @@ class DriveSyncManager(
                             val scale = min(1.5f, 1400f / maxSide.toFloat()).coerceAtLeast(0.5f)
                             val width = (page.width * scale).roundToInt().coerceAtLeast(1)
                             val height = (page.height * scale).roundToInt().coerceAtLeast(1)
-                            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                            bitmap!!.eraseColor(AndroidColor.WHITE)
-                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            val rendered = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            bitmap = rendered
+                            rendered.eraseColor(AndroidColor.WHITE)
+                            page.render(rendered, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         } finally {
                             page.close()
                         }
