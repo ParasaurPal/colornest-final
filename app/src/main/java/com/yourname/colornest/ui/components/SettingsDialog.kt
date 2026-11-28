@@ -24,7 +24,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CheckCircle
@@ -102,10 +101,6 @@ fun SettingsDialog(
     onDisconnectDrive: () -> Unit,
     onSetDriveScanOnOpen: (Boolean) -> Unit,
     onRefreshDriveSettings: () -> Unit,
-    onToggleAiAutoTag: (Boolean) -> Unit,
-    onScanLibraryWithAi: () -> Unit,
-    onConfirmApplyAiSuggestions: () -> Unit,
-    onDismissAiSuggestions: () -> Unit,
     onClearAllTags: () -> Unit,
     onSetWipeStep: (Int) -> Unit,
     onSetDeleteCloud: (Boolean) -> Unit,
@@ -556,74 +551,6 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // 6. AI Subject Tagging
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(PurpleContainerLight.copy(alpha = 0.35f))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, tint = PurplePrimary, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("AI Subject Tagging & Category Sorting", fontWeight = FontWeight.Bold, color = PurplePrimary, fontSize = 15.sp)
-                    }
-                    Text(
-                        "Gemini identifies subjects, adds descriptive tags, and assigns pages to the best matching category already in your category tree. It learns from category corrections you make to AI-tagged pages. Suggestions are reviewed before they are applied.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggleAiAutoTag(!extra.aiAutoTagUploads) }
-                    ) {
-                        Checkbox(
-                            checked = extra.aiAutoTagUploads,
-                            onCheckedChange = onToggleAiAutoTag,
-                            colors = CheckboxDefaults.colors(checkedColor = PurplePrimary)
-                        )
-                        Text("Automatically tag & sort new uploads", fontSize = 12.sp)
-                    }
-
-                    Button(
-                        onClick = onScanLibraryWithAi,
-                        enabled = !extra.isAiTagging,
-                        colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("scan_ai_tags_button")
-                    ) {
-                        Text(
-                            text = if (extra.isAiTagging) "Scanning…" else "Scan Library with Gemini",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    if (extra.isAiTagging) {
-                        val prog = if (extra.aiTagTotal > 0) extra.aiTagDone.toFloat() / extra.aiTagTotal.toFloat() else 0f
-                        LinearProgressIndicator(
-                            progress = { prog },
-                            color = PurplePrimary,
-                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
-                        )
-                    }
-
-                    if (extra.aiTagStatus.isNotBlank()) {
-                        Text(
-                            text = extra.aiTagStatus,
-                            fontSize = 11.sp,
-                            color = if (extra.aiTagIsError) AccentRed else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
                 // 7. Danger Zone
                 Column(
                     modifier = Modifier
@@ -705,83 +632,6 @@ fun SettingsDialog(
             },
             dismissButton = {
                 TextButton(onClick = { showClearTagsConfirm = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    // Review AI suggestions dialog
-    val suggestions = extra.pendingAiSuggestions
-    if (!suggestions.isNullOrEmpty()) {
-        AlertDialog(
-            onDismissRequest = onDismissAiSuggestions,
-            title = {
-                Text(
-                    text = "Review AI Tag & Category Suggestions (${suggestions.size})",
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Review the suggested category and tags below. Pages are only assigned to categories that already exist:",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 280.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(suggestions, key = { it.page.id }) { item ->
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                    .padding(10.dp)
-                            ) {
-                                Text(
-                                    text = item.page.title.ifBlank { "Untitled page" },
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "Category: ${item.categoryPath}",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = PurplePrimary
-                                )
-                                Text(item.reason, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(
-                                    text = if (item.tags.isEmpty()) "No new tags" else "Tags: ${item.tags.joinToString(", ")}",
-                                    fontSize = 12.sp,
-                                    color = PurplePrimary
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = onConfirmApplyAiSuggestions,
-                    colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
-                    modifier = Modifier.testTag("apply_ai_suggestions_button")
-                ) {
-                    Text("Apply Tags & Sort", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = onDismissAiSuggestions,
-                    modifier = Modifier.testTag("dismiss_ai_suggestions_button")
-                ) {
-                    Text("Discard")
-                }
             }
         )
     }
