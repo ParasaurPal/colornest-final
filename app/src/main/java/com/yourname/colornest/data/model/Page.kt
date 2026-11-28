@@ -26,8 +26,6 @@ data class Page(
     val whiteBackgroundProcessed: Boolean = false,
     val whiteBackgroundVersion: Int = 0,
     val syncId: String? = null,
-    val aiSuggestedTags: List<String> = emptyList(),
-    val aiScannedAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

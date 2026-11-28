@@ -35,6 +35,3 @@ captures/
 *.keystore
 *.apk
 
-# Firebase client configuration (keep project-specific config out of source control)
-app/google-services.json
-app/src/*/google-services.json

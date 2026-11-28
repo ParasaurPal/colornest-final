@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 
 @Database(
     entities = [Page::class, Category::class, Setting::class, TagEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -82,8 +82,6 @@ abstract class ColorNestDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE pages ADD COLUMN whiteBackgroundProcessed INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE pages ADD COLUMN whiteBackgroundVersion INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE pages ADD COLUMN syncId TEXT")
-                db.execSQL("ALTER TABLE pages ADD COLUMN aiSuggestedTags TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE pages ADD COLUMN aiScannedAt INTEGER")
                 db.execSQL("ALTER TABLE pages ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE pages SET updatedAt = createdAt WHERE updatedAt = 0")
 
@@ -98,6 +96,57 @@ abstract class ColorNestDatabase : RoomDatabase() {
             }
         }
 
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Remove obsolete AI-only metadata without touching user pages or files.
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS pages_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        title TEXT NOT NULL,
+                        categoryId INTEGER,
+                        complexity TEXT NOT NULL,
+                        time TEXT NOT NULL,
+                        tool TEXT NOT NULL,
+                        imageUrl TEXT NOT NULL,
+                        thumbnailUrl TEXT,
+                        isPreviewOnly INTEGER NOT NULL,
+                        driveThumbnailLink TEXT,
+                        isFavorite INTEGER NOT NULL,
+                        isCompleted INTEGER NOT NULL,
+                        progress INTEGER NOT NULL,
+                        isUncategorized INTEGER NOT NULL,
+                        tags TEXT NOT NULL,
+                        driveFileId TEXT,
+                        whiteBackgroundProcessed INTEGER NOT NULL,
+                        whiteBackgroundVersion INTEGER NOT NULL,
+                        syncId TEXT,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO pages_new (
+                        id, title, categoryId, complexity, time, tool, imageUrl,
+                        thumbnailUrl, isPreviewOnly, driveThumbnailLink, isFavorite,
+                        isCompleted, progress, isUncategorized, tags, driveFileId,
+                        whiteBackgroundProcessed, whiteBackgroundVersion, syncId,
+                        createdAt, updatedAt
+                    )
+                    SELECT
+                        id, title, categoryId, complexity, time, tool, imageUrl,
+                        thumbnailUrl, isPreviewOnly, driveThumbnailLink, isFavorite,
+                        isCompleted, progress, isUncategorized, tags, driveFileId,
+                        whiteBackgroundProcessed, whiteBackgroundVersion, syncId,
+                        createdAt, updatedAt
+                    FROM pages
+                """.trimIndent())
+                db.execSQL("DROP TABLE pages")
+                db.execSQL("ALTER TABLE pages_new RENAME TO pages")
+                db.execSQL("DELETE FROM settings WHERE key IN ('aiAutoTagUploads', 'aiCategoryLearning')")
+            }
+        }
+
         @Volatile
         private var INSTANCE: ColorNestDatabase? = null
 
@@ -109,7 +158,7 @@ abstract class ColorNestDatabase : RoomDatabase() {
                     "colornest_database"
                 )
                     .addCallback(DatabaseCallback())
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                 INSTANCE = instance
                 instance

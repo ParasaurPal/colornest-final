@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
@@ -56,7 +55,6 @@ fun AddPageDialog(
     progressText: String,
     progressPercent: Int,
     onFilesSelected: (List<Uri>, Boolean) -> Unit,
-    onAiImageSelected: (Uri) -> Unit,
     onClose: () -> Unit
 ) {
     if (!isOpen) return
@@ -77,12 +75,6 @@ fun AddPageDialog(
         if (uris.isNotEmpty()) {
             onFilesSelected(uris, removeWhiteBackground)
         }
-    }
-
-    val aiImagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        uri?.let(onAiImageSelected)
     }
 
     Dialog(onDismissRequest = { if (!isProcessing) onClose() }) {
@@ -290,56 +282,6 @@ fun AddPageDialog(
                         }
                     }
 
-                    if (!isProcessing && progressText.startsWith("AI coloring-page creation failed:")) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = progressText,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // AI image-to-image coloring page generator
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(PurpleContainerLight.copy(alpha = 0.55f))
-                            .border(1.dp, PurplePrimary.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
-                            .clickable {
-                                aiImagePickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            }
-                            .padding(horizontal = 16.dp, vertical = 15.dp)
-                            .testTag("ai_coloring_page_button")
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = PurplePrimary,
-                                modifier = Modifier.size(25.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "Create a Coloring Page with AI",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Gemini redraws a photo as clean, printable line art",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
