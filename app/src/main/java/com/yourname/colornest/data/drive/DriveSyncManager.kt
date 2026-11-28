@@ -464,7 +464,7 @@ class DriveSyncManager(
         val tempFile = File(context.cacheDir, "drive_dl_${System.currentTimeMillis()}.tmp")
         try {
             downloadFile(service, entry.id, tempFile)
-            val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
+            val bitmap = decodeSampledBitmapFile(tempFile)
                 ?: throw IllegalStateException("Could not decode downloaded image.")
             val processed = try {
                 ImageProcessor.processBitmapAndSave(
@@ -984,6 +984,22 @@ class DriveSyncManager(
         return service.files().create(metadata, content)
             .setFields("id")
             .execute().id
+    }
+
+    private fun decodeSampledBitmapFile(file: File, maxDimension: Int = 2500): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sampleSize = 1
+        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > maxDimension) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, options)
     }
 
     private fun downloadFile(service: Drive, driveId: String, target: File) {
