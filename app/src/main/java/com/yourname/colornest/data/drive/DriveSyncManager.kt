@@ -49,7 +49,8 @@ data class SyncResult(
     val downloaded: Int = 0,
     val moved: Int = 0,
     val renamed: Int = 0,
-    val removedLocal: Int = 0
+    val removedLocal: Int = 0,
+    val unlinkedLocal: Int = 0
 ) {
     fun summary(): String {
         if (notConnected) return "Not connected to Google Drive"
@@ -60,7 +61,8 @@ data class SyncResult(
         if (downloaded > 0) parts.add("$downloaded downloaded")
         if (moved > 0) parts.add("$moved moved")
         if (renamed > 0) parts.add("$renamed renamed")
-        if (removedLocal > 0) parts.add("$removedLocal removed")
+        if (removedLocal > 0) parts.add("$removedLocal preview(s) removed")
+        if (unlinkedLocal > 0) parts.add("$unlinkedLocal local original(s) kept offline")
         return if (parts.isEmpty()) "Sync complete — everything is up to date"
         else "Sync complete — " + parts.joinToString(", ")
     }
@@ -303,6 +305,7 @@ class DriveSyncManager(
         var moved = 0
         var renamed = 0
         var removedLocal = 0
+        var unlinkedLocal = 0
 
         val rootId = getOrCreateFolder(service, ROOT_FOLDER_NAME, "root")
         val untaggedId = getOrCreateFolder(service, UNTAGGED_FOLDER_NAME, rootId)
@@ -344,6 +347,7 @@ class DriveSyncManager(
                             File(page.imageUrl).takeIf { it.isFile }?.delete()
                             page.thumbnailUrl?.let { File(it).takeIf { file -> file.isFile }?.delete() }
                             pageDao.deletePage(page)
+                            removedLocal++
                         } else {
                             // A cloud-side deletion must not destroy the user's offline original.
                             // Unlink it so the next sync can upload it again if desired.
@@ -353,8 +357,8 @@ class DriveSyncManager(
                                     updatedAt = System.currentTimeMillis()
                                 )
                             )
+                            unlinkedLocal++
                         }
-                        removedLocal++
                     }
                     RemoteState.EXISTS_ELSEWHERE -> Unit
                 }
@@ -395,7 +399,8 @@ class DriveSyncManager(
             downloaded = downloaded,
             moved = moved,
             renamed = renamed,
-            removedLocal = removedLocal
+            removedLocal = removedLocal,
+            unlinkedLocal = unlinkedLocal
         )
     }
 
