@@ -3,7 +3,19 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("org.jetbrains.kotlin.kapt")
-    alias(libs.plugins.google.services)
+    alias(libs.plugins.google.services) apply false
+}
+
+// Firebase is optional for local builds. Drive and the offline library remain usable
+// when a developer has not supplied the private google-services.json file.
+val hasGoogleServicesConfig = listOf(
+    "google-services.json",
+    "src/main/google-services.json",
+    "src/debug/google-services.json",
+    "src/release/google-services.json"
+).any { file(it).isFile }
+if (hasGoogleServicesConfig) {
+    pluginManager.apply("com.google.gms.google-services")
 }
 
 val stableSigningPath = System.getenv("ANDROID_KEYSTORE_PATH")
