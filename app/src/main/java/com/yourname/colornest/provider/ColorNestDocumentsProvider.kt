@@ -324,8 +324,8 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
         signal?.throwIfCanceled()
         val ctx = context ?: throw FileNotFoundException("Provider context unavailable")
         val sourceFile = resolveExistingPageFile(documentId)
-        val targetWidth = (sizeHint?.x ?: 256).coerceAtLeast(64)
-        val targetHeight = (sizeHint?.y ?: 256).coerceAtLeast(64)
+        val targetWidth = (sizeHint?.x ?: 256).coerceIn(64, 1024)
+        val targetHeight = (sizeHint?.y ?: 256).coerceIn(64, 1024)
 
         val thumbDir = File(ctx.cacheDir, "saf_thumbs").apply { if (!exists()) mkdirs() }
         val isPng = sourceFile.name.endsWith(".png", ignoreCase = true)
@@ -377,7 +377,7 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false
 
             var inSampleSize = 1
-            while ((bounds.outHeight / inSampleSize) > reqHeight * 2 &&
+            while ((bounds.outHeight / inSampleSize) > reqHeight * 2 ||
                 (bounds.outWidth / inSampleSize) > reqWidth * 2
             ) {
                 inSampleSize *= 2
@@ -385,32 +385,38 @@ class ColorNestDocumentsProvider : DocumentsProvider() {
 
             val decodeOpts = BitmapFactory.Options().apply {
                 this.inSampleSize = inSampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             val decoded = BitmapFactory.decodeFile(sourceFile.absolutePath, decodeOpts) ?: return false
-            val maxSide = max(reqWidth, reqHeight)
-            val scaled = if (decoded.width > maxSide * 2 || decoded.height > maxSide * 2) {
-                val ratio = minOf(
-                    (maxSide * 2f) / decoded.width,
-                    (maxSide * 2f) / decoded.height
-                )
-                Bitmap.createScaledBitmap(
-                    decoded,
-                    (decoded.width * ratio).toInt().coerceAtLeast(1),
-                    (decoded.height * ratio).toInt().coerceAtLeast(1),
-                    true
-                )
-            } else {
-                decoded
-            }
+            var scaled: Bitmap? = null
+            try {
+                val maxSide = max(reqWidth, reqHeight)
+                val outputBitmap = if (decoded.width > maxSide * 2 || decoded.height > maxSide * 2) {
+                    val ratio = minOf(
+                        (maxSide * 2f) / decoded.width,
+                        (maxSide * 2f) / decoded.height
+                    )
+                    Bitmap.createScaledBitmap(
+                        decoded,
+                        (decoded.width * ratio).toInt().coerceAtLeast(1),
+                        (decoded.height * ratio).toInt().coerceAtLeast(1),
+                        true
+                    )
+                } else {
+                    decoded
+                }
+                scaled = outputBitmap
 
-            FileOutputStream(thumbFile).use { out ->
-                val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-                val quality = if (isPng) 100 else 85
-                scaled.compress(format, quality, out)
+                FileOutputStream(thumbFile).use { out ->
+                    val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                    val quality = if (isPng) 100 else 85
+                    outputBitmap.compress(format, quality, out)
+                }
+                true
+            } finally {
+                if (scaled != null && scaled !== decoded) scaled.recycle()
+                decoded.recycle()
             }
-            if (scaled !== decoded) scaled.recycle()
-            decoded.recycle()
-            true
         }.getOrDefault(false)
     }
 
