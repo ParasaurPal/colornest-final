@@ -187,7 +187,7 @@ class DriveSyncManager(
     }
 
     suspend fun isScanOnOpenEnabled(): Boolean = withContext(Dispatchers.IO) {
-        settingDao.getSetting(KEY_SCAN_ON_OPEN)?.toBooleanStrictOrNull() ?: true
+        settingDao.getSetting(KEY_SCAN_ON_OPEN)?.toBooleanStrictOrNull() ?: false
     }
 
     suspend fun setScanOnOpenEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
