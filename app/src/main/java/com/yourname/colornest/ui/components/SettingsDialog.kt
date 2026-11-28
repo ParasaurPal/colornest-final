@@ -447,23 +447,6 @@ fun SettingsDialog(
                         }
 
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSetDriveScanOnOpen(!extra.driveScanOnOpen) }
-                        ) {
-                            Checkbox(
-                                checked = extra.driveScanOnOpen,
-                                onCheckedChange = onSetDriveScanOnOpen,
-                                colors = CheckboxDefaults.colors(checkedColor = PurplePrimary)
-                            )
-                            Text(
-                                text = "Import new Drive previews when app opens",
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
