@@ -39,14 +39,6 @@ enum class SortOption(val label: String) {
     FAVORITES("Favorites first")
 }
 
-data class PendingAiSuggestion(
-    val page: Page,
-    val tags: List<String>,
-    val categoryId: Long,
-    val categoryPath: String,
-    val reason: String
-)
-
 data class ViewerUiState(
     val page: Page? = null,
     val tempPreviewBytes: ByteArray? = null,
@@ -97,13 +89,6 @@ data class SettingsExtraUiState(
     val driveScanOnOpen: Boolean = true,
     val isSyncingDrive: Boolean = false,
     val driveStatus: String = "",
-    val aiAutoTagUploads: Boolean = false,
-    val isAiTagging: Boolean = false,
-    val aiTagDone: Int = 0,
-    val aiTagTotal: Int = 0,
-    val aiTagStatus: String = "",
-    val aiTagIsError: Boolean = false,
-    val pendingAiSuggestions: List<PendingAiSuggestion>? = null
 )
 
 data class UiState(
@@ -203,11 +188,9 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
                 _modalState.update { it.copy(isDarkMode = true) }
             }
             val fullImages = repository.getSetting("galleryFullImages") == "true"
-            val autoTag = repository.getSetting("aiAutoTagUploads") == "true"
             _settingsExtra.update {
                 it.copy(
-                    galleryFullImages = fullImages,
-                    aiAutoTagUploads = autoTag
+                    galleryFullImages = fullImages
                 )
             }
             refreshSettingsMetadata()
@@ -870,141 +853,6 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // ---------- AI Subject Tagging ----------
-
-    fun toggleAiAutoTag(enabled: Boolean) {
-        _settingsExtra.update { it.copy(aiAutoTagUploads = enabled) }
-        viewModelScope.launch {
-            repository.setSetting("aiAutoTagUploads", enabled.toString())
-        }
-    }
-
-    private fun buildCategoryPath(categoryId: Long, categories: List<Category>): String {
-        val byId = categories.associateBy { it.id }
-        val names = mutableListOf<String>()
-        var current = byId[categoryId]
-        while (current != null) {
-            names.add(0, current.name)
-            current = current.parentId?.let { byId[it] }
-        }
-        return names.joinToString(" / ").ifBlank { "Category" }
-    }
-
-    fun scanLibraryWithAi() {
-        if (_settingsExtra.value.isAiTagging) return
-
-        viewModelScope.launch {
-            val allCategories = repository.categoryDao.getAllCategories()
-            if (allCategories.isEmpty()) {
-                _settingsExtra.update {
-                    it.copy(
-                        aiTagIsError = true,
-                        aiTagStatus = "Load your default category tree before running AI sorting."
-                    )
-                }
-                return@launch
-            }
-            val learning = runCatching { org.json.JSONArray(repository.getSetting("aiCategoryLearning").orEmpty()) }
-                .getOrNull()?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
-            val pending = repository.pageDao.getAllPages().filter { page ->
-                val hasImage = (page.imageUrl.isNotBlank() && File(page.imageUrl).exists()) ||
-                    (!page.thumbnailUrl.isNullOrBlank() && File(page.thumbnailUrl).exists())
-                hasImage && (page.aiScannedAt == null || page.categoryId == null)
-            }
-            if (pending.isEmpty()) {
-                _settingsExtra.update {
-                    it.copy(
-                        aiTagIsError = false,
-                        aiTagStatus = "All locally available images have already been AI-scanned."
-                    )
-                }
-                return@launch
-            }
-
-            _settingsExtra.update {
-                it.copy(
-                    isAiTagging = true,
-                    aiTagDone = 0,
-                    aiTagTotal = pending.size,
-                    aiTagIsError = false,
-                    aiTagStatus = "Scanning your library…"
-                )
-            }
-
-            val suggestions = mutableListOf<PendingAiSuggestion>()
-            var failed = 0
-            var lastError: String? = null
-            for ((index, page) in pending.withIndex()) {
-                _settingsExtra.update {
-                    it.copy(aiTagStatus = "Scanning ${index + 1} of ${pending.size}: ${page.title.ifBlank { "Untitled" }}")
-                }
-                try {
-                    val tags = if (page.aiScannedAt == null) repository.suggestTagsForPage(page) else page.aiSuggestedTags
-                    val category = repository.suggestCategoryForPage(page, allCategories, learning)
-                    val categoryName = buildCategoryPath(category.categoryId, allCategories)
-                    suggestions.add(PendingAiSuggestion(page, tags, category.categoryId, categoryName, category.reason))
-                } catch (e: TimeoutCancellationException) {
-                    failed++
-                    lastError = "Request timed out after 60 seconds."
-                    Log.e("ColorNestViewModel", "AI scan timed out for page ${page.id}", e)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    failed++
-                    lastError = e.localizedMessage ?: "Gemini inference failed."
-                    Log.e("ColorNestViewModel", "AI scan failed for page ${page.id}", e)
-                }
-                _settingsExtra.update { it.copy(aiTagDone = index + 1) }
-            }
-
-            if (suggestions.isNotEmpty()) {
-                _settingsExtra.update {
-                    it.copy(
-                        isAiTagging = false,
-                        pendingAiSuggestions = suggestions,
-                        aiTagIsError = false,
-                        aiTagStatus = "Ready to review ${suggestions.size} suggestions.${if (failed > 0) " $failed failed${lastError?.let { err -> " ($err)" } ?: "."}" else ""}"
-                    )
-                }
-            } else {
-                _settingsExtra.update {
-                    it.copy(
-                        isAiTagging = false,
-                        aiTagIsError = true,
-                        aiTagStatus = "Scan failed for $failed file(s): ${lastError ?: "Unable to reach Gemini."}"
-                    )
-                }
-            }
-        }
-    }
-
-    fun confirmApplyAiSuggestions() {
-        val suggestions = _settingsExtra.value.pendingAiSuggestions ?: return
-        viewModelScope.launch {
-            for (item in suggestions) {
-                repository.applyAiTagSuggestions(item.page, item.tags, item.categoryId)
-            }
-            _settingsExtra.update {
-                it.copy(
-                    pendingAiSuggestions = null,
-                    aiTagIsError = false,
-                    aiTagStatus = "Applied AI tags and category assignments to ${suggestions.size} files."
-                )
-            }
-        }
-    }
-
-    fun dismissAiSuggestions() {
-        val count = _settingsExtra.value.pendingAiSuggestions?.size ?: 0
-        _settingsExtra.update {
-            it.copy(
-                pendingAiSuggestions = null,
-                aiTagIsError = false,
-                aiTagStatus = "Scanned $count files. No tags were changed; run the scan again whenever you are ready to apply them."
-            )
-        }
-    }
-
     // ---------- Wipe ----------
 
     fun setWipeStep(step: Int) {
@@ -1075,47 +923,6 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-
-    fun generateAiColoringPage(uri: Uri) {
-        if (_modalState.value.isProcessingAdd) return
-        viewModelScope.launch {
-            _modalState.update {
-                it.copy(
-                    isProcessingAdd = true,
-                    addProgressPercent = 8,
-                    addProgressText = "Preparing your image for Gemini…",
-                    isAddModalOpen = true
-                )
-            }
-            try {
-                _modalState.update {
-                    it.copy(addProgressPercent = 25, addProgressText = "AI is redrawing your image as coloring-book artwork…")
-                }
-                repository.generateAiColoringPage(uri)
-                _modalState.update {
-                    it.copy(
-                        addProgressPercent = 100,
-                        addProgressText = "Your AI coloring page has been saved!"
-                    )
-                }
-                refreshSettingsMetadata()
-                kotlinx.coroutines.delay(900)
-                _modalState.update {
-                    it.copy(isProcessingAdd = false, isAddModalOpen = false, addProgressText = "")
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _modalState.update {
-                    it.copy(
-                        isProcessingAdd = false,
-                        addProgressPercent = 0,
-                        addProgressText = "AI coloring-page creation failed: ${e.localizedMessage ?: "Please try again."}"
-                    )
-                }
-            }
-        }
-    }
 
     fun importSharedImage(uri: Uri, asFinished: Boolean) {
         viewModelScope.launch {
