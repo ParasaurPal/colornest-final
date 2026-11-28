@@ -206,16 +206,27 @@ object ImageProcessor {
         thumbsDir: File
     ): ProcessedImageResult? {
         if (!sourceFile.exists() || !sourceFile.isFile) return null
-        val decoded = BitmapFactory.decodeFile(sourceFile.absolutePath) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(sourceFile.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sampleSize = 1
+        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 2500) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = BitmapFactory.decodeFile(sourceFile.absolutePath, options) ?: return null
         return try {
-            val result = processBitmapAndSave(
+            processBitmapAndSave(
                 bitmap = decoded,
                 imagesDir = imagesDir,
                 thumbsDir = thumbsDir,
                 baseName = "reproc",
                 removeWhitePaper = true
             )
-            result
         } finally {
             decoded.recycle()
         }
