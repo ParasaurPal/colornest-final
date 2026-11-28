@@ -339,10 +339,21 @@ class DriveSyncManager(
             if (remote == null) {
                 when (checkRemoteState(service, driveId)) {
                     RemoteState.TRASHED, RemoteState.GONE -> {
-                        val localFile = File(page.imageUrl)
-                        if (localFile.exists()) localFile.delete()
-                        page.thumbnailUrl?.let { File(it).takeIf { f -> f.exists() }?.delete() }
-                        pageDao.deletePage(page)
+                        if (page.isPreviewOnly) {
+                            // A preview has no locally owned full-resolution original.
+                            File(page.imageUrl).takeIf { it.isFile }?.delete()
+                            page.thumbnailUrl?.let { File(it).takeIf { file -> file.isFile }?.delete() }
+                            pageDao.deletePage(page)
+                        } else {
+                            // A cloud-side deletion must not destroy the user's offline original.
+                            // Unlink it so the next sync can upload it again if desired.
+                            pageDao.updatePage(
+                                page.copy(
+                                    driveFileId = null,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            )
+                        }
                         removedLocal++
                     }
                     RemoteState.EXISTS_ELSEWHERE -> Unit
@@ -450,14 +461,17 @@ class DriveSyncManager(
             downloadFile(service, entry.id, tempFile)
             val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
                 ?: throw IllegalStateException("Could not decode downloaded image.")
-            val processed = ImageProcessor.processBitmapAndSave(
-                bitmap = bitmap,
-                imagesDir = imagesDir,
-                thumbsDir = thumbsDir,
-                baseName = "drive",
-                removeWhitePaper = true
-            )
-            bitmap.recycle()
+            val processed = try {
+                ImageProcessor.processBitmapAndSave(
+                    bitmap = bitmap,
+                    imagesDir = imagesDir,
+                    thumbsDir = thumbsDir,
+                    baseName = "drive",
+                    removeWhitePaper = true
+                )
+            } finally {
+                bitmap.recycle()
+            }
 
             if (existing != null) {
                 pageDao.updatePage(
