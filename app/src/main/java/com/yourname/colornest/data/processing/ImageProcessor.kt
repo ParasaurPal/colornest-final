@@ -106,12 +106,15 @@ object ImageProcessor {
                 source
             }
 
-            val file = File(thumbsDir, "${baseName}_thumb_${System.currentTimeMillis()}_${(100..999).random()}.png")
-            FileOutputStream(file).use { out ->
-                thumbBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            try {
+                val file = File(thumbsDir, "${baseName}_thumb_${System.currentTimeMillis()}_${(100..999).random()}.png")
+                FileOutputStream(file).use { out ->
+                    thumbBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                file.absolutePath
+            } finally {
+                if (thumbBitmap !== source) thumbBitmap.recycle()
             }
-            if (thumbBitmap !== source) thumbBitmap.recycle()
-            file.absolutePath
         }.getOrNull()
     }
 
@@ -128,7 +131,7 @@ object ImageProcessor {
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
             var inSampleSize = 1
-            while ((bounds.outWidth / inSampleSize) > maxSize * 2 &&
+            while ((bounds.outWidth / inSampleSize) > maxSize * 2 ||
                 (bounds.outHeight / inSampleSize) > maxSize * 2
             ) {
                 inSampleSize *= 2
@@ -153,18 +156,21 @@ object ImageProcessor {
         if (!imagesDir.exists()) imagesDir.mkdirs()
         if (removeWhitePaper) {
             val transparent = removeWhiteBackground(bitmap)
-            val file = File(imagesDir, "${baseName}_${System.currentTimeMillis()}_${(100..999).random()}.png")
-            FileOutputStream(file).use { out ->
-                transparent.compress(Bitmap.CompressFormat.PNG, 100, out)
+            try {
+                val file = File(imagesDir, "${baseName}_${System.currentTimeMillis()}_${(100..999).random()}.png")
+                FileOutputStream(file).use { out ->
+                    transparent.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                val thumbPath = createThumbnailFromBitmap(transparent, thumbsDir, baseName)
+                return ProcessedImageResult(
+                    imagePath = file.absolutePath,
+                    thumbnailPath = thumbPath,
+                    whiteBackgroundProcessed = true,
+                    whiteBackgroundVersion = WHITE_BACKGROUND_VERSION
+                )
+            } finally {
+                transparent.recycle()
             }
-            val thumbPath = createThumbnailFromBitmap(transparent, thumbsDir, baseName)
-            transparent.recycle()
-            return ProcessedImageResult(
-                imagePath = file.absolutePath,
-                thumbnailPath = thumbPath,
-                whiteBackgroundProcessed = true,
-                whiteBackgroundVersion = WHITE_BACKGROUND_VERSION
-            )
         } else {
             val width = bitmap.width
             val height = bitmap.height
@@ -176,18 +182,21 @@ object ImageProcessor {
             } else {
                 bitmap
             }
-            val file = File(imagesDir, "${baseName}_${System.currentTimeMillis()}_${(100..999).random()}.png")
-            FileOutputStream(file).use { out ->
-                scaled.compress(Bitmap.CompressFormat.PNG, 100, out)
+            try {
+                val file = File(imagesDir, "${baseName}_${System.currentTimeMillis()}_${(100..999).random()}.png")
+                FileOutputStream(file).use { out ->
+                    scaled.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                val thumbPath = createThumbnailFromBitmap(scaled, thumbsDir, baseName)
+                return ProcessedImageResult(
+                    imagePath = file.absolutePath,
+                    thumbnailPath = thumbPath,
+                    whiteBackgroundProcessed = false,
+                    whiteBackgroundVersion = 0
+                )
+            } finally {
+                if (scaled !== bitmap) scaled.recycle()
             }
-            val thumbPath = createThumbnailFromBitmap(scaled, thumbsDir, baseName)
-            if (scaled !== bitmap) scaled.recycle()
-            return ProcessedImageResult(
-                imagePath = file.absolutePath,
-                thumbnailPath = thumbPath,
-                whiteBackgroundProcessed = false,
-                whiteBackgroundVersion = 0
-            )
         }
     }
 
@@ -197,16 +206,27 @@ object ImageProcessor {
         thumbsDir: File
     ): ProcessedImageResult? {
         if (!sourceFile.exists() || !sourceFile.isFile) return null
-        val decoded = BitmapFactory.decodeFile(sourceFile.absolutePath) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(sourceFile.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sampleSize = 1
+        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 2500) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = BitmapFactory.decodeFile(sourceFile.absolutePath, options) ?: return null
         return try {
-            val result = processBitmapAndSave(
+            processBitmapAndSave(
                 bitmap = decoded,
                 imagesDir = imagesDir,
                 thumbsDir = thumbsDir,
                 baseName = "reproc",
                 removeWhitePaper = true
             )
-            result
         } finally {
             decoded.recycle()
         }

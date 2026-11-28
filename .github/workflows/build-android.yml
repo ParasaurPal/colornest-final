@@ -62,7 +62,7 @@ jobs:
           fi
           KEYSTORE_PATH="$RUNNER_TEMP/colornest-signing.jks"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
-          KEY_ALIAS="$(keytool -list -keystore "$KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null | sed -n 's/^.*Alias name: //p' | head -n 1)"
+          KEY_ALIAS="$(keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null | sed -n 's/^Alias name: //p' | head -n 1)"
           if [ -z "$KEY_ALIAS" ]; then
             echo "Could not read an alias from the configured Android keystore."
             exit 1

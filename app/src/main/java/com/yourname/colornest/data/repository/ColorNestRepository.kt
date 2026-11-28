@@ -8,6 +8,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.room.withTransaction
 import com.yourname.colornest.data.ColorNestDatabase
 import com.yourname.colornest.data.PrepopulateCategories
 import com.yourname.colornest.data.ai.AiColoringPageService
@@ -32,7 +33,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
@@ -160,7 +160,7 @@ class ColorNestRepository(private val context: Context) {
         )
         pageDao.updatePage(updated)
         uniqueTags.forEach { name ->
-            if (tagDao.getTagByName(name) == null) {
+            if (tagDao.getTagByNameIgnoreCase(name) == null) {
                 tagDao.insertTag(TagEntity(name = name, createdAt = now))
             }
         }
@@ -173,25 +173,29 @@ class ColorNestRepository(private val context: Context) {
     suspend fun createTag(rawName: String): Boolean = withContext(Dispatchers.IO) {
         val name = rawName.trim()
         if (name.isEmpty()) return@withContext false
-        if (tagDao.getTagByName(name) != null) return@withContext false
+        if (tagDao.getTagByNameIgnoreCase(name) != null) return@withContext false
         tagDao.insertTag(TagEntity(name = name))
         true
     }
 
     suspend fun renameTag(oldName: String, rawNewName: String) = withContext(Dispatchers.IO) {
         val newName = rawNewName.trim()
-        if (newName.isEmpty() || newName == oldName) return@withContext
+        if (newName.isEmpty() || newName.equals(oldName, ignoreCase = true)) return@withContext
+        val oldTag = tagDao.getTagByNameIgnoreCase(oldName)
+        val canonicalNewName = tagDao.getTagByNameIgnoreCase(newName)?.name ?: newName
         val now = System.currentTimeMillis()
         val allPages = pageDao.getAllPages()
         for (page in allPages) {
-            if (oldName in page.tags) {
-                val updatedTags = page.tags.map { if (it == oldName) newName else it }.distinct()
+            if (page.tags.any { it.equals(oldName, ignoreCase = true) }) {
+                val updatedTags = page.tags
+                    .map { if (it.equals(oldName, ignoreCase = true)) canonicalNewName else it }
+                    .distinctBy { it.lowercase() }
                 pageDao.updatePage(page.copy(tags = updatedTags, updatedAt = now))
             }
         }
-        tagDao.deleteTagByName(oldName)
-        if (tagDao.getTagByName(newName) == null) {
-            tagDao.insertTag(TagEntity(name = newName, createdAt = now))
+        oldTag?.let { tagDao.deleteTagByName(it.name) }
+        if (tagDao.getTagByNameIgnoreCase(canonicalNewName) == null) {
+            tagDao.insertTag(TagEntity(name = canonicalNewName, createdAt = now))
         }
         ColorNestDocumentsProvider.notifyChanged(context)
     }
@@ -408,19 +412,46 @@ class ColorNestRepository(private val context: Context) {
 
     suspend fun importBackup(uri: Uri) = withContext(Dispatchers.IO) {
         val restored = BackupManager.parseAndExtractFromUri(context, uri, imagesDir, thumbsDir)
-        pageDao.deleteAllPages()
-        categoryDao.deleteAllCategories()
-        tagDao.deleteAllTags()
+        val previousFiles = pageDao.getAllPages().flatMap { page ->
+            listOfNotNull(page.imageUrl.takeIf { it.isNotBlank() }, page.thumbnailUrl?.takeIf { it.isNotBlank() })
+        }.toSet()
+        val restoredFiles = restored.pages.flatMap { page ->
+            listOfNotNull(page.imageUrl.takeIf { it.isNotBlank() }, page.thumbnailUrl?.takeIf { it.isNotBlank() })
+        }.toSet()
 
-        // Preserve category parent relationships cleanly while letting Room re-assign or keep IDs
-        if (restored.categories.isNotEmpty()) {
-            categoryDao.insertCategories(restored.categories)
+        try {
+            // Keep the existing library intact unless every restored database write succeeds.
+            db.withTransaction {
+                pageDao.deleteAllPages()
+                categoryDao.deleteAllCategories()
+                tagDao.deleteAllTags()
+
+                if (restored.categories.isNotEmpty()) {
+                    categoryDao.insertCategories(restored.categories)
+                }
+                if (restored.pages.isNotEmpty()) {
+                    pageDao.insertPages(restored.pages)
+                }
+                if (restored.tags.isNotEmpty()) {
+                    tagDao.insertTags(restored.tags)
+                }
+            }
+        } catch (error: Exception) {
+            // The extracted files belong to this failed restore; remove them without touching
+            // any files that were already part of the user's library.
+            (restoredFiles - previousFiles).forEach { path ->
+                runCatching { File(path).takeIf { it.isFile }?.delete() }
+            }
+            throw error
         }
-        if (restored.pages.isNotEmpty()) {
-            pageDao.insertPages(restored.pages)
-        }
-        if (restored.tags.isNotEmpty()) {
-            tagDao.insertTags(restored.tags)
+
+        // Delete superseded local images only after the Room transaction commits.
+        val managedRoot = imagesDir.canonicalPath + File.separator
+        (previousFiles - restoredFiles).forEach { path ->
+            runCatching {
+                val file = File(path).canonicalFile
+                if (file.path.startsWith(managedRoot) && file.isFile) file.delete()
+            }
         }
         ColorNestDocumentsProvider.notifyChanged(context)
     }
@@ -569,53 +600,49 @@ class ColorNestRepository(private val context: Context) {
             convertPdfToPages(uri, baseTitle, removeWhiteBackground, autoTagEnabled, onProgress)
         } else {
             onProgress("Processing image...", 40)
-            var inputStream: InputStream? = null
+            val bitmap = decodeSampledBitmap(uri)
+                ?: throw IllegalStateException("The selected file is not a supported image.")
             try {
-                inputStream = context.contentResolver.openInputStream(uri)
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                if (bitmap != null) {
-                    onProgress(if (autoTagEnabled) "Saving & tagging image..." else "Saving image...", 75)
-                    val processed = ImageProcessor.processBitmapAndSave(
-                        bitmap = bitmap,
-                        imagesDir = imagesDir,
-                        thumbsDir = thumbsDir,
-                        baseName = "img",
-                        removeWhitePaper = removeWhiteBackground
-                    )
-                    bitmap.recycle()
+                onProgress(if (autoTagEnabled) "Saving & tagging image..." else "Saving image...", 75)
+                val processed = ImageProcessor.processBitmapAndSave(
+                    bitmap = bitmap,
+                    imagesDir = imagesDir,
+                    thumbsDir = thumbsDir,
+                    baseName = "img",
+                    removeWhitePaper = removeWhiteBackground
+                )
 
-                    val cleanTitle = if (fileName.contains('.')) {
-                        fileName.substringBeforeLast('.').ifBlank { "Untitled page" }
-                    } else {
-                        fileName.ifBlank { "Untitled page" }
-                    }
-                    val now = System.currentTimeMillis()
-                    val insertedId = pageDao.insertPage(
-                        Page(
-                            title = cleanTitle,
-                            imageUrl = processed.imagePath,
-                            thumbnailUrl = processed.thumbnailPath,
-                            isUncategorized = true,
-                            whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
-                            whiteBackgroundVersion = processed.whiteBackgroundVersion,
-                            syncId = UUID.randomUUID().toString(),
-                            createdAt = now,
-                            updatedAt = now
-                        )
-                    )
-                    if (autoTagEnabled) {
-                        try {
-                            pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e("ColorNestRepository", "Auto-tag failed for imported image $insertedId", e)
-                        }
-                    }
-                    ColorNestDocumentsProvider.notifyChanged(context)
+                val cleanTitle = if (fileName.contains('.')) {
+                    fileName.substringBeforeLast('.').ifBlank { "Untitled page" }
+                } else {
+                    fileName.ifBlank { "Untitled page" }
                 }
+                val now = System.currentTimeMillis()
+                val insertedId = pageDao.insertPage(
+                    Page(
+                        title = cleanTitle,
+                        imageUrl = processed.imagePath,
+                        thumbnailUrl = processed.thumbnailPath,
+                        isUncategorized = true,
+                        whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                        whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                        syncId = UUID.randomUUID().toString(),
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+                if (autoTagEnabled) {
+                    try {
+                        pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e("ColorNestRepository", "Auto-tag failed for imported image $insertedId", e)
+                    }
+                }
+                ColorNestDocumentsProvider.notifyChanged(context)
             } finally {
-                inputStream?.close()
+                bitmap.recycle()
             }
         }
     }
@@ -632,71 +659,101 @@ class ColorNestRepository(private val context: Context) {
             FileOutputStream(tempPdfFile).use { output ->
                 input.copyTo(output)
             }
-        } ?: return
+        } ?: throw IllegalStateException("ColorNest couldn't read the selected PDF.")
 
         try {
             val fileDescriptor = ParcelFileDescriptor.open(tempPdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val pdfRenderer = PdfRenderer(fileDescriptor)
-            val pageCount = pdfRenderer.pageCount
+            try {
+                val pdfRenderer = PdfRenderer(fileDescriptor)
+                try {
+                    val pageCount = pdfRenderer.pageCount
+                    if (pageCount <= 0) throw IllegalStateException("The selected PDF contains no pages.")
 
-            for (i in 0 until pageCount) {
-                val percent = ((i + 1) * 100) / pageCount.coerceAtLeast(1)
-                onProgress(
-                    if (autoTagEnabled) "Saving & tagging page ${i + 1} of $pageCount..."
-                    else "Converting page ${i + 1} of $pageCount...",
-                    percent
-                )
+                    for (i in 0 until pageCount) {
+                        onProgress(
+                            if (autoTagEnabled) "Saving & tagging page ${i + 1} of $pageCount..."
+                            else "Converting page ${i + 1} of $pageCount...",
+                            ((i + 1) * 100) / pageCount
+                        )
 
-                val page = pdfRenderer.openPage(i)
-                val maxPdfSide = max(page.width, page.height).coerceAtLeast(1)
-                val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
-                val w = (page.width * scale).roundToInt().coerceAtLeast(1)
-                val h = (page.height * scale).roundToInt().coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(AndroidColor.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
+                        val page = pdfRenderer.openPage(i)
+                        try {
+                            val maxPdfSide = max(page.width, page.height).coerceAtLeast(1)
+                            val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
+                            val width = (page.width * scale).roundToInt().coerceAtLeast(1)
+                            val height = (page.height * scale).roundToInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            val processed = try {
+                                bitmap.eraseColor(AndroidColor.WHITE)
+                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                ImageProcessor.processBitmapAndSave(
+                                    bitmap = bitmap,
+                                    imagesDir = imagesDir,
+                                    thumbsDir = thumbsDir,
+                                    baseName = "pdf_page",
+                                    removeWhitePaper = removeWhiteBackground
+                                )
+                            } finally {
+                                bitmap.recycle()
+                            }
 
-                val processed = ImageProcessor.processBitmapAndSave(
-                    bitmap = bitmap,
-                    imagesDir = imagesDir,
-                    thumbsDir = thumbsDir,
-                    baseName = "pdf_page",
-                    removeWhitePaper = removeWhiteBackground
-                )
-                bitmap.recycle()
+                            val now = System.currentTimeMillis()
+                            val insertedId = pageDao.insertPage(
+                                Page(
+                                    title = "$baseTitle - Page ${i + 1}",
+                                    imageUrl = processed.imagePath,
+                                    thumbnailUrl = processed.thumbnailPath,
+                                    isUncategorized = true,
+                                    whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                                    whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                                    syncId = UUID.randomUUID().toString(),
+                                    createdAt = now,
+                                    updatedAt = now
+                                )
+                            )
 
-                val now = System.currentTimeMillis()
-                val insertedId = pageDao.insertPage(
-                    Page(
-                        title = "$baseTitle - Page ${i + 1}",
-                        imageUrl = processed.imagePath,
-                        thumbnailUrl = processed.thumbnailPath,
-                        isUncategorized = true,
-                        whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
-                        whiteBackgroundVersion = processed.whiteBackgroundVersion,
-                        syncId = UUID.randomUUID().toString(),
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                )
-
-                if (autoTagEnabled) {
-                    try {
-                        pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e("ColorNestRepository", "Auto-tag failed for PDF page $insertedId", e)
+                            if (autoTagEnabled) {
+                                try {
+                                    pageDao.getPageById(insertedId)?.let { autoTagAndSortPage(it) }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.e("ColorNestRepository", "Auto-tag failed for PDF page $insertedId", e)
+                                }
+                            }
+                        } finally {
+                            page.close()
+                        }
                     }
+                    ColorNestDocumentsProvider.notifyChanged(context)
+                } finally {
+                    pdfRenderer.close()
                 }
+            } finally {
+                fileDescriptor.close()
             }
-
-            pdfRenderer.close()
-            fileDescriptor.close()
-            ColorNestDocumentsProvider.notifyChanged(context)
         } finally {
             tempPdfFile.delete()
+        }
+    }
+
+    private fun decodeSampledBitmap(uri: Uri, maxDimension: Int = 2500): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        } ?: return null
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sampleSize = 1
+        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > maxDimension) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, options)
         }
     }
 

@@ -49,7 +49,8 @@ data class SyncResult(
     val downloaded: Int = 0,
     val moved: Int = 0,
     val renamed: Int = 0,
-    val removedLocal: Int = 0
+    val removedLocal: Int = 0,
+    val unlinkedLocal: Int = 0
 ) {
     fun summary(): String {
         if (notConnected) return "Not connected to Google Drive"
@@ -60,7 +61,8 @@ data class SyncResult(
         if (downloaded > 0) parts.add("$downloaded downloaded")
         if (moved > 0) parts.add("$moved moved")
         if (renamed > 0) parts.add("$renamed renamed")
-        if (removedLocal > 0) parts.add("$removedLocal removed")
+        if (removedLocal > 0) parts.add("$removedLocal preview(s) removed")
+        if (unlinkedLocal > 0) parts.add("$unlinkedLocal local original(s) kept offline")
         return if (parts.isEmpty()) "Sync complete — everything is up to date"
         else "Sync complete — " + parts.joinToString(", ")
     }
@@ -303,6 +305,7 @@ class DriveSyncManager(
         var moved = 0
         var renamed = 0
         var removedLocal = 0
+        var unlinkedLocal = 0
 
         val rootId = getOrCreateFolder(service, ROOT_FOLDER_NAME, "root")
         val untaggedId = getOrCreateFolder(service, UNTAGGED_FOLDER_NAME, rootId)
@@ -339,11 +342,23 @@ class DriveSyncManager(
             if (remote == null) {
                 when (checkRemoteState(service, driveId)) {
                     RemoteState.TRASHED, RemoteState.GONE -> {
-                        val localFile = File(page.imageUrl)
-                        if (localFile.exists()) localFile.delete()
-                        page.thumbnailUrl?.let { File(it).takeIf { f -> f.exists() }?.delete() }
-                        pageDao.deletePage(page)
-                        removedLocal++
+                        if (page.isPreviewOnly) {
+                            // A preview has no locally owned full-resolution original.
+                            File(page.imageUrl).takeIf { it.isFile }?.delete()
+                            page.thumbnailUrl?.let { File(it).takeIf { file -> file.isFile }?.delete() }
+                            pageDao.deletePage(page)
+                            removedLocal++
+                        } else {
+                            // A cloud-side deletion must not destroy the user's offline original.
+                            // Unlink it so the next sync can upload it again if desired.
+                            pageDao.updatePage(
+                                page.copy(
+                                    driveFileId = null,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            )
+                            unlinkedLocal++
+                        }
                     }
                     RemoteState.EXISTS_ELSEWHERE -> Unit
                 }
@@ -384,7 +399,8 @@ class DriveSyncManager(
             downloaded = downloaded,
             moved = moved,
             renamed = renamed,
-            removedLocal = removedLocal
+            removedLocal = removedLocal,
+            unlinkedLocal = unlinkedLocal
         )
     }
 
@@ -448,16 +464,19 @@ class DriveSyncManager(
         val tempFile = File(context.cacheDir, "drive_dl_${System.currentTimeMillis()}.tmp")
         try {
             downloadFile(service, entry.id, tempFile)
-            val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
+            val bitmap = decodeSampledBitmapFile(tempFile)
                 ?: throw IllegalStateException("Could not decode downloaded image.")
-            val processed = ImageProcessor.processBitmapAndSave(
-                bitmap = bitmap,
-                imagesDir = imagesDir,
-                thumbsDir = thumbsDir,
-                baseName = "drive",
-                removeWhitePaper = true
-            )
-            bitmap.recycle()
+            val processed = try {
+                ImageProcessor.processBitmapAndSave(
+                    bitmap = bitmap,
+                    imagesDir = imagesDir,
+                    thumbsDir = thumbsDir,
+                    baseName = "drive",
+                    removeWhitePaper = true
+                )
+            } finally {
+                bitmap.recycle()
+            }
 
             if (existing != null) {
                 pageDao.updatePage(
@@ -527,61 +546,68 @@ class DriveSyncManager(
         val tempPdf = File(context.cacheDir, "drive_pdf_${System.currentTimeMillis()}.pdf")
         try {
             downloadFile(service, entry.id, tempPdf)
+            var pageCount = 0
             val descriptor = ParcelFileDescriptor.open(tempPdf, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(descriptor)
-            val pageCount = renderer.pageCount
-            if (pageCount <= 0) {
-                renderer.close()
+            try {
+                val renderer = PdfRenderer(descriptor)
+                try {
+                    pageCount = renderer.pageCount
+                    if (pageCount <= 0) throw IllegalStateException("The PDF did not contain any pages.")
+
+                    val baseTitle = entry.name.replace(Regex("\\.pdf$", RegexOption.IGNORE_CASE), "").ifBlank { "Imported PDF" }
+                    val pdfTags = includeCategoryTag(entry.categoryId, emptyList())
+                    val now = System.currentTimeMillis()
+
+                    for (i in 0 until pageCount) {
+                        val pdfPage = renderer.openPage(i)
+                        try {
+                            val maxPdfSide = max(pdfPage.width, pdfPage.height).coerceAtLeast(1)
+                            val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
+                            val width = (pdfPage.width * scale).roundToInt().coerceAtLeast(1)
+                            val height = (pdfPage.height * scale).roundToInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            val processed = try {
+                                bitmap.eraseColor(AndroidColor.WHITE)
+                                pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                ImageProcessor.processBitmapAndSave(
+                                    bitmap = bitmap,
+                                    imagesDir = imagesDir,
+                                    thumbsDir = thumbsDir,
+                                    baseName = "drive_pdf",
+                                    removeWhitePaper = true
+                                )
+                            } finally {
+                                bitmap.recycle()
+                            }
+
+                            pageDao.insertPage(
+                                Page(
+                                    title = "$baseTitle - Page ${i + 1}",
+                                    categoryId = entry.categoryId,
+                                    imageUrl = processed.imagePath,
+                                    thumbnailUrl = processed.thumbnailPath,
+                                    isUncategorized = entry.categoryId == null,
+                                    tags = pdfTags,
+                                    whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
+                                    whiteBackgroundVersion = processed.whiteBackgroundVersion,
+                                    syncId = UUID.randomUUID().toString(),
+                                    createdAt = now,
+                                    updatedAt = now
+                                )
+                            )
+                        } finally {
+                            pdfPage.close()
+                        }
+                    }
+                } finally {
+                    renderer.close()
+                }
+            } finally {
                 descriptor.close()
-                throw IllegalStateException("The PDF did not contain any pages.")
             }
-
-            val baseTitle = entry.name.replace(Regex("\\.pdf$", RegexOption.IGNORE_CASE), "").ifBlank { "Imported PDF" }
-            val pdfTags = includeCategoryTag(entry.categoryId, emptyList())
-            val now = System.currentTimeMillis()
-
-            for (i in 0 until pageCount) {
-                val pdfPage = renderer.openPage(i)
-                val maxPdfSide = max(pdfPage.width, pdfPage.height).coerceAtLeast(1)
-                val scale = min(3.0f, 2200f / maxPdfSide.toFloat()).coerceAtLeast(1.0f)
-                val w = (pdfPage.width * scale).roundToInt().coerceAtLeast(1)
-                val h = (pdfPage.height * scale).roundToInt().coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(AndroidColor.WHITE)
-                pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                pdfPage.close()
-
-                val processed = ImageProcessor.processBitmapAndSave(
-                    bitmap = bitmap,
-                    imagesDir = imagesDir,
-                    thumbsDir = thumbsDir,
-                    baseName = "drive_pdf",
-                    removeWhitePaper = true
-                )
-                bitmap.recycle()
-
-                pageDao.insertPage(
-                    Page(
-                        title = "$baseTitle - Page ${i + 1}",
-                        categoryId = entry.categoryId,
-                        imageUrl = processed.imagePath,
-                        thumbnailUrl = processed.thumbnailPath,
-                        isUncategorized = entry.categoryId == null,
-                        tags = pdfTags,
-                        whiteBackgroundProcessed = processed.whiteBackgroundProcessed,
-                        whiteBackgroundVersion = processed.whiteBackgroundVersion,
-                        syncId = UUID.randomUUID().toString(),
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                )
-            }
-
-            renderer.close()
-            descriptor.close()
 
             if (existingPreview != null) {
-                existingPreview.thumbnailUrl?.let { File(it).takeIf { f -> f.exists() }?.delete() }
+                existingPreview.thumbnailUrl?.let { File(it).takeIf { file -> file.isFile }?.delete() }
                 pageDao.deletePage(existingPreview)
             }
             processedPdfIds.add(entry.id)
@@ -958,6 +984,22 @@ class DriveSyncManager(
         return service.files().create(metadata, content)
             .setFields("id")
             .execute().id
+    }
+
+    private fun decodeSampledBitmapFile(file: File, maxDimension: Int = 2500): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        var sampleSize = 1
+        while (max(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > maxDimension) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, options)
     }
 
     private fun downloadFile(service: Drive, driveId: String, target: File) {
