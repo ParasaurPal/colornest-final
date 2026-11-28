@@ -374,7 +374,6 @@ class ColorNestRepository(private val context: Context) {
     suspend fun listDriveFiles(): Pair<Boolean, List<DriveBrowserEntry>> = driveSyncManager.listDriveFiles()
     suspend fun downloadDriveEntry(entry: DriveBrowserEntry): Int = driveSyncManager.downloadDriveEntry(entry)
     suspend fun downloadPreviewPage(page: Page): Pair<Int, Boolean> = driveSyncManager.downloadPreviewPage(page)
-    suspend fun fetchTempPreviewBytes(page: Page): ByteArray? = driveSyncManager.fetchTempPreviewBytes(page)
     suspend fun downloadDriveFileToCache(page: Page): File? = driveSyncManager.downloadDriveFileToCache(page)
 
     // ---------- Wipe ----------
