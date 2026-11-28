@@ -163,10 +163,23 @@ object PrepopulateCategories {
     )
 
     suspend fun seedMassiveCategories(categoryDao: CategoryDao) = withContext(Dispatchers.IO) {
-        categoryDao.deleteAllCategories()
+        // Merge the preset tree into the user's existing tree. Never clear categories:
+        // pages, nested folders, and Drive mappings may already reference their IDs.
+        val existingByParentAndName = categoryDao.getAllCategories()
+            .associateBy { (it.parentId to it.name.trim().lowercase()) }
+            .toMutableMap()
 
         suspend fun insertNode(node: CategoryNode, parentId: Long?) {
-            val id = categoryDao.insertCategory(Category(name = node.name, parentId = parentId))
+            val key = parentId to node.name.trim().lowercase()
+            val id = existingByParentAndName[key]?.id ?: categoryDao.insertCategory(
+                Category(name = node.name, parentId = parentId)
+            ).also { insertedId ->
+                existingByParentAndName[key] = Category(
+                    id = insertedId,
+                    name = node.name,
+                    parentId = parentId
+                )
+            }
             for (child in node.children) {
                 insertNode(child, id)
             }
