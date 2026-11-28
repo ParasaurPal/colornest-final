@@ -196,13 +196,7 @@ class ColorNestViewModel(application: Application) : AndroidViewModel(applicatio
             // Non-blocking thumbnail backfill for pages saved before thumbnails existed
             launch { repository.backfillThumbnails() }
 
-            // Automatic Drive preview import on launch when enabled
-            launch {
-                if (repository.isDriveConnected() && repository.isDriveScanOnOpen()) {
-                    runCatching { repository.syncDrivePreviews() }
-                    refreshDriveSettings()
-                }
-            }
+            // Google Drive actions are always user-initiated from the Drive sign-in screen.
         }
     }
 
