@@ -161,7 +161,7 @@ class ColorNestRepository(private val context: Context) {
         )
         pageDao.updatePage(updated)
         uniqueTags.forEach { name ->
-            if (tagDao.getTagByName(name) == null) {
+            if (tagDao.getTagByNameIgnoreCase(name) == null) {
                 tagDao.insertTag(TagEntity(name = name, createdAt = now))
             }
         }
@@ -174,25 +174,29 @@ class ColorNestRepository(private val context: Context) {
     suspend fun createTag(rawName: String): Boolean = withContext(Dispatchers.IO) {
         val name = rawName.trim()
         if (name.isEmpty()) return@withContext false
-        if (tagDao.getTagByName(name) != null) return@withContext false
+        if (tagDao.getTagByNameIgnoreCase(name) != null) return@withContext false
         tagDao.insertTag(TagEntity(name = name))
         true
     }
 
     suspend fun renameTag(oldName: String, rawNewName: String) = withContext(Dispatchers.IO) {
         val newName = rawNewName.trim()
-        if (newName.isEmpty() || newName == oldName) return@withContext
+        if (newName.isEmpty() || newName.equals(oldName, ignoreCase = true)) return@withContext
+        val oldTag = tagDao.getTagByNameIgnoreCase(oldName)
+        val canonicalNewName = tagDao.getTagByNameIgnoreCase(newName)?.name ?: newName
         val now = System.currentTimeMillis()
         val allPages = pageDao.getAllPages()
         for (page in allPages) {
-            if (oldName in page.tags) {
-                val updatedTags = page.tags.map { if (it == oldName) newName else it }.distinct()
+            if (page.tags.any { it.equals(oldName, ignoreCase = true) }) {
+                val updatedTags = page.tags
+                    .map { if (it.equals(oldName, ignoreCase = true)) canonicalNewName else it }
+                    .distinctBy { it.lowercase() }
                 pageDao.updatePage(page.copy(tags = updatedTags, updatedAt = now))
             }
         }
-        tagDao.deleteTagByName(oldName)
-        if (tagDao.getTagByName(newName) == null) {
-            tagDao.insertTag(TagEntity(name = newName, createdAt = now))
+        oldTag?.let { tagDao.deleteTagByName(it.name) }
+        if (tagDao.getTagByNameIgnoreCase(canonicalNewName) == null) {
+            tagDao.insertTag(TagEntity(name = canonicalNewName, createdAt = now))
         }
         ColorNestDocumentsProvider.notifyChanged(context)
     }
